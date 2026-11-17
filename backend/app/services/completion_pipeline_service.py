@@ -38,6 +38,9 @@ from backend.app.services.month_comparison_service import (
     ReasonStatus,
     compare_with_previous,
 )
+from backend.app.services.population_status_scope_service import (
+    LIFECYCLE_ACTIVE,
+)
 from backend.app.services.percentage_validation_service import (
     ExceptionCode,
     FormatStatus,
@@ -158,6 +161,8 @@ def build_expected_population_from_rows(
                     else None
                 ),
                 baseline_status=baseline_status,
+                po_status=row.get("po_status"),
+                lifecycle_status=LIFECYCLE_ACTIVE,
             )
         )
 

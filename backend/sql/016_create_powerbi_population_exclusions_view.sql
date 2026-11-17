@@ -79,8 +79,14 @@ COMMENT ON VIEW vw_pbi_population_exclusions IS
 -- the population or was excluded from it.  This is the single view that
 -- answers the question finance actually asks: "who was asked to report, and
 -- who was not?"
+--
+-- The view is dropped first, because the column list grew when the PO
+-- status scope was added and a view cannot change its column order in
+-- place.  It is READ ONLY, and no report reads from it during the swap.
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE VIEW vw_pbi_population_scope AS
+DROP VIEW IF EXISTS vw_pbi_population_scope;
+
+CREATE VIEW vw_pbi_population_scope AS
 WITH included AS (
     SELECT
         e.reporting_month,
@@ -88,7 +94,10 @@ WITH included AS (
         e.cost_center,
         e.department_name,
         e.department_owner,
-        COUNT(*)::INTEGER AS expected_line_count
+        COUNT(*)::INTEGER AS expected_line_count,
+        COUNT(*) FILTER (
+            WHERE e.lifecycle_status = 'CLOSED_IN_MONTH'
+        )::INTEGER AS closed_in_month_line_count
     FROM expected_po_lines e
     GROUP BY
         e.reporting_month,
@@ -106,6 +115,7 @@ SELECT
     'INCLUDED'                          AS population_status,
     NULL::VARCHAR                       AS exclusion_reason,
     i.expected_line_count,
+    i.closed_in_month_line_count,
     TRUE                                AS is_authorised_contact
 FROM included i
 
@@ -120,6 +130,7 @@ SELECT
     'EXCLUDED'                          AS population_status,
     pe.exclusion_reason,
     0                                   AS expected_line_count,
+    0                                   AS closed_in_month_line_count,
     FALSE                               AS is_authorised_contact
 FROM population_exclusions pe;
 
@@ -127,4 +138,5 @@ COMMENT ON VIEW vw_pbi_population_scope IS
     'Page 6 - the full scope of the collection. One row per department and '
     'reporting month, flagged as INCLUDED or EXCLUDED. The expected line '
     'count is zero for an excluded department, because it was never asked '
-    'to report.';
+    'to report. The closed_in_month_line_count is the number of lines that '
+    'closed during the month and are retained in this population.';

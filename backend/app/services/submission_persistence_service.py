@@ -87,6 +87,15 @@ class ExpectedPopulationRow:
     previous_baseline_period: date | None = None
     baseline_status: str = "MISSING"
 
+    # The ERP po_status of the line at the moment the population was
+    # frozen.  It records the scope the population was built under.
+    po_status: str | None = None
+
+    # ACTIVE           the line is a live part of the reporting scope.
+    # CLOSED_IN_MONTH  the line closed during this reporting month and is
+    #                  retained here, marked as closed.
+    lifecycle_status: str = "ACTIVE"
+
 
 def ensure_reporting_period(
     reporting_month: str,
@@ -159,11 +168,12 @@ def freeze_expected_population(
                     po_line_amount, cumulative_gr, currency,
                     previous_completion_pct,
                     previous_baseline_period,
-                    baseline_status
+                    baseline_status,
+                    po_status, lifecycle_status
                 )
                 VALUES (
                     %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
                 ON CONFLICT (
                     reporting_month, legal_entity,
@@ -181,7 +191,9 @@ def freeze_expected_population(
                     currency = EXCLUDED.currency,
                     previous_completion_pct = EXCLUDED.previous_completion_pct,
                     previous_baseline_period = EXCLUDED.previous_baseline_period,
-                    baseline_status = EXCLUDED.baseline_status
+                    baseline_status = EXCLUDED.baseline_status,
+                    po_status = EXCLUDED.po_status,
+                    lifecycle_status = EXCLUDED.lifecycle_status
                 """,
                 [
                     (
@@ -201,6 +213,8 @@ def freeze_expected_population(
                         row.previous_completion_pct,
                         row.previous_baseline_period,
                         row.baseline_status,
+                        row.po_status,
+                        row.lifecycle_status,
                     )
                     for row in rows
                 ],

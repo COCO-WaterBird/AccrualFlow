@@ -13,81 +13,87 @@ permission prompts are not decisions and are tracked in
 ## D-1 — Which PO statuses belong in the monthly report?
 
 **Priority:** High — affects every month from now on.
-**Status:** OPEN — awaiting your answer.
+**Status:** **RESOLVED — 2026-11-17, by the owner.**
 
-### What this means, in plain terms
+### Decision
 
-Every month the company sends a list of PO lines to each department and
-asks "how far along is this line?" That list is the **expected population**.
+**Report the `Open` PO lines only.** Every PO line that is filtered out
+is recorded on the **same ledger** as the excluded departments, so it
+also shows up on **Power BI Page 6**.
 
-The ERP holds a status on every PO line. At the moment:
+A PO line that **closes partway through a reporting month** is marked as
+**"已关闭" (Closed)** and **retained in its last active month** — the
+month in which the work finished. It leaves the population from the
+following month on, and appears on the ledger with its last active month.
 
-| `po_status` | PO lines | Cost centres | Amount | Share |
-|---|---|---|---|---|
-| `Open` | 476 | 6 | 345,241,000 | 95.2 % |
-| `On Hold` | 21 | 5 | 17,239,000 | 4.2 % |
-| `Closed` | 3 | 3 | 2,204,500 | 0.6 % |
-| **Total** | **500** | **6** | **364,684,500** | 100 % |
+### The three rules in plain terms
 
-The question is: **should all 500 lines be on the monthly list, or should
-some be left off?**
+| # | Rule | Effect on `2026-11` |
+|---|---|---|
+| 1 | The Python filter keeps only `po_status = 'Open'`. | 500 → **476** lines in the population |
+| 2 | Every filtered line goes on the exclusion ledger, same as the excluded departments. | 24 lines on the ledger: 21 `On Hold`, 3 `Closed` |
+| 3 | A line that closes mid-month is marked "Closed" and kept in its last active month. | 0 lines today — see *Why no line closed this month* below |
 
-### Why it matters
+### What was delivered
 
-- A **Closed** PO is finished. Its completion is settled at 100 % and will
-  never change. Asking a department to confirm it every month is work for
-  nothing, and it adds rows that can never move — which flattens the
-  "did anything change this month" statistics.
-- An **On Hold** PO is blocked for reasons often outside the
-  department's control. It is still CapEx money that is not being spent,
-  so keeping it visible is usually valuable.
+| Piece | Where |
+|---|---|
+| The status filter | `scripts/freeze_population.py` → `apply_status_scope()` |
+| The scope logic | `backend/app/services/population_status_scope_service.py` |
+| The ledger table | `backend/sql/017_create_population_status_scope.sql` → `population_status_exclusions` |
+| The closed-line table | same file → `population_closed_lines` |
+| The scope record | same file → `population_status_scope` |
+| The status on the frozen line | `backend/sql/018_add_expected_po_line_status.sql` → `expected_po_lines.po_status`, `.lifecycle_status` |
+| Power BI Page 6 | `backend/sql/019_create_powerbi_population_status_view.sql` → `vw_pbi_population_status_exclusions`, `vw_pbi_population_closed_lines` |
+| The Master Excel | `Master_Data` gained `PO Status` and `Line Lifecycle` columns |
+| The CSV | `backend/data/runtime/population/<month>/excluded_po_lines.csv` |
 
-Right now **all 500 lines are included**, because the ERP import pulls
-every PO line without a status filter and the MVP document defines no
-status scope. This is the safe default, but it may not be the right one.
+### Verified output for `2026-11`
 
-### Options
+```
+Population (Open only) : 476 lines across 6 departments
+Filtered onto the ledger:  24 lines  (21 On Hold, 3 Closed)
+Excluded departments   :   1         (2000-900 Procurement, NO_PO_LINES)
+```
 
-**A. Report all 500 lines every month** — *status quo; my recommendation.*
+```
+cost_center  po_number  po_line  po_status  included_status  excluded_statuses
+2000-150     45700045         5  Closed     Open             On Hold, Closed
+2000-110     45700162         1  Closed     Open             On Hold, Closed
+2000-130     45700214         1  Closed     Open             On Hold, Closed
+2000-150     45700003         1  On Hold    Open             On Hold, Closed
+```
 
-- Nothing is filtered, so no line can ever look "missing" just because its
-  PO closed.
-- The report is a complete picture of the CapEx commitment book.
-- Downside: departments keep re-confirming finished work.
+### Why no line closed this month
 
-**B. Report only `Open` POs — 476 lines.**
+The rule "keep a mid-month closure in its last active month" needs the
+**ERP status history** to work: it can only recognise a closing when the
+ERP has been **imported more than once**.
 
-- The report tracks only the live portfolio, which is what a manager acts
-  on.
-- Downside: a PO that closes mid-month disappears from the next month's
-  report without a trace. It needs an explicit "closed this period"
-  treatment, otherwise the disappearance looks like missing data.
+The ERP has been imported **once** (`2026-11-09`, batch 1, 500 lines).
+There is therefore **no status history at all**, and the 3 `Closed` lines
+were already closed at the first import — they were never active in this
+reporting cycle.
 
-**C. Report `Open` + `On Hold` — 497 lines, exclude `Closed`.**
+So today:
 
-- A balanced middle: closed work leaves the report, blocked work stays
-  visible so the reason for the stall can be chased.
-- Downside: same "disappears from the report" issue as B, for the 3
-  closed lines.
+- `last_active_month` is `NULL` on all 24 ledger rows. It is left
+  **unknown** rather than guessed.
+- `population_closed_lines` is empty, and `closed_in_month_line_count` is
+  `0` for every department.
 
-### Recommendation
-
-**Option A for now.** It is already running, it is the conservative
-choice, and it loses nothing. I would rather see how the departments
-actually respond to a closed PO being asked about before I narrow the
-scope for every future month.
-
-If you prefer B or C, say which and I will add the filter, re-freeze
-`2026-11`, and record the excluded lines on the same ledger that already
-reports the excluded departments — so they show up in Power BI Page 6 too.
+**From the second ERP import onwards the rule activates by itself**, with
+no further decision from you. The machinery is in place and covered by
+tests (`tests/test_population_status_scope.py`, 14 tests).
 
 ### Consequences
 
-| If you choose | Then |
-|---|---|
-| A | Nothing changes. `2026-11` stays at 500 lines. |
-| B | The population drops to 476 lines. The 24 closed and on-hold lines move to the exclusion ledger, appear in `excluded_departments.csv`, and appear in `vw_pbi_population_scope` as excluded. I need **one more business input**: should a line that closes mid-month show up in its last active month marked "closed", or just disappear? |
-| C | The population drops to 497 lines. Same ledger and Power BI treatment. Same follow-up question about a line closing mid-month. |
+- The monthly report now tracks the **live** portfolio (476 lines).
+- The report can no longer silently understate the commitment book: the
+  24 filtered lines are on the ledger, in the Master Excel, in the CSV
+  and on Power BI Page 6.
+- The `last_active_month` column stays empty until the ERP has a second
+  import. This is expected, not a fault.
 
 ---
 

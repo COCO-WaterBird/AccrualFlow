@@ -64,6 +64,8 @@ MASTER_HEADERS = [
     "PO Line Amount",
     "Previous Completion %",
     "Current Completion % (accepted)",
+    "PO Status",
+    "Line Lifecycle",
     "Submitted Raw Value",
     "Submitted Number Format",
     "Change (pp)",
@@ -261,6 +263,8 @@ def build_master_workbook(
                     e.po_line_amount,
                     e.previous_completion_pct,
                     e.baseline_status,
+                    e.po_status,
+                    e.lifecycle_status,
 
                     sl.raw_value,
                     sl.raw_number_format,
@@ -506,6 +510,8 @@ def build_master_workbook(
             float(row["accepted_current_pct"])
             if row["accepted_current_pct"] is not None
             else None,
+            row.get("po_status"),
+            row.get("lifecycle_status"),
             row["raw_value"],
             row["raw_number_format"],
             float(row["change_percentage_points"])
@@ -528,7 +534,7 @@ def build_master_workbook(
     _style_header(worksheet)
     master_last_row = max(2, worksheet.max_row)
     _percent_columns(worksheet, [9, 10], master_last_row)
-    _set_widths(worksheet, [16, 10, 26, 16, 16, 10, 38, 16, 20, 22, 18, 20, 14, 40, 26, 26, 34, 16, 12, 22, 22, 44, 52, 18, 22])
+    _set_widths(worksheet, [16, 10, 26, 16, 16, 10, 38, 16, 20, 22, 12, 18, 18, 20, 14, 40, 26, 26, 34, 16, 12, 22, 22, 44, 52, 18, 22])
     worksheet.freeze_panes = "A2"
     worksheet.auto_filter.ref = worksheet.dimensions
 

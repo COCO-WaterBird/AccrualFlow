@@ -8,12 +8,16 @@
 
 ## 1. Current task
 
-**Freeze the expected PO line population for `2026-11` and make the
-exclusions visible to finance.**
+**Apply the owner's PO status scope (D-1) and keep the excluded lines
+visible to finance.**
 
-Status: **substantially complete.** The population is frozen (500 lines,
-6 departments), the exclusions are recorded and visible in three places,
-and the Master Excel now reports the excluded department explicitly.
+Status: **complete.** The population for `2026-11` was re-frozen under the
+`Open`-only scope (500 → **476** lines), the 24 filtered lines were
+written onto the exclusion ledger, and they are visible in the Master
+Excel, in a CSV, in the database and on **Power BI Page 6**. The
+mid-month closure rule is implemented and covered by tests, and it
+activates by itself from the second ERP import onwards.
+
 One verification remains: a full DAG run end-to-end. That run is blocked
 by a revoked Gmail OAuth token — see *Blockers*.
 
@@ -25,10 +29,11 @@ by a revoked Gmail OAuth token — see *Blockers*.
 
 | Item | Result |
 |---|---|
-| `reporting_periods` | 1 row — `2026-11`, `population_frozen = TRUE`, `population_row_count = 500` |
-| `expected_po_lines` | 500 rows (entity `2000`) |
+| `reporting_periods` | 1 row — `2026-11`, `population_frozen = TRUE`, `population_row_count = 476` |
+| `expected_po_lines` | 476 rows (entity `2000`), all `po_status = 'Open'` |
 | `department_contacts` | 6 rows — the authorised recipients |
 | `population_exclusions` | 1 row — `2000-900 Procurement` |
+| `population_status_exclusions` | 24 rows — the PO lines filtered out by status |
 
 **Recipient rule applied:** the `manager` of the cost centre is the
 authorised recipient. It is stored as both `department_owner` and
@@ -160,25 +165,25 @@ None. All background shells have finished.
 
 ### 4.2 Not a blocker, but noted
 
-`po_status` in the ERP snapshot is `Open` (476), `On Hold` (21) and
-`Closed` (3). **All 500 lines are currently in the population**, because
-`po_sync_service` imports every PO line without a status filter and the
-MVP document defines no status scope. Whether closed and on-hold POs
-should be reported every month is a business rule — it is queued as
-**D-1**.
+The ERP snapshot holds `Open` (476), `On Hold` (21) and `Closed` (3). The
+owner resolved **D-1** on 2026-11-17: the report covers the **Open**
+lines only, and the 24 filtered lines are on the exclusion ledger. The
+mid-month closure rule is implemented but dormant until the ERP has a
+**second** import — see section 2.8.
 
 ---
 
 ## 5. Tests and evidence
 
 ```
-$ /usr/local/bin/python3.12 -m pytest -q
-170 passed in 13.53s
+$ python3 -m pytest -q
+184 passed in 49.61s
 ```
 
 | Suite | Result |
 |---|---|
-| Whole suite (170 tests) | **170 passed** |
+| Whole suite (184 tests) | **184 passed** |
+| `tests/test_population_status_scope.py` | 14 passed (new) |
 | `tests/test_freeze_population.py` | 14 passed |
 | `tests/test_population_exclusions.py` | 4 passed |
 | `tests/test_deterministic_xlsx.py` | 8 passed |
@@ -188,14 +193,16 @@ $ /usr/local/bin/python3.12 -m pytest -q
 | Previously flaky export test, 10 consecutive runs | 10/10 passed |
 | Export determinism stress, 15 exports across second boundaries | 1 unique hash |
 
-**Database state, verified after cleanup:**
+**Database state, verified after the re-freeze:**
 
 ```
-reporting_periods      1 row   (2026-11, frozen, 500 lines)
-expected_po_lines    500 rows
-department_contacts     6 rows
-population_exclusions  1 row   (2000-900, NO_PO_LINES)
-email_requests          6 rows  (all DRY_RUN, one per manager)
+reporting_periods               1 row   (2026-11, frozen, 476 lines)
+expected_po_lines             476 rows
+department_contacts              6 rows
+population_exclusions            1 row   (2000-900, NO_PO_LINES)
+population_status_scope          1 row   (Open / On Hold, Closed)
+population_status_exclusions    24 rows  (21 On Hold, 3 Closed)
+population_closed_lines          0 rows  (no second ERP import yet)
 ```
 
 **Probe residue removed.** Two throwaway months (`2096-03`, `2097-05`)
@@ -204,7 +211,9 @@ created during diagnosis were deleted. Only `2026-11` data remains.
 **Master Excel, verified:**
 
 ```
-CapEx_Completion_Master_2026-11.xlsx | expected=500 | departments=6 | SUCCESS
+CapEx_Completion_Master_2026-11.xlsx | expected=476 | departments=6 | SUCCESS
+
+Master_Data: 476 rows, PO Status = Open (476), Line Lifecycle = ACTIVE (476)
 
 Department_Summary:
   Manufacturing Engineering | NOT_SUBMITTED | INCLUDED
@@ -223,11 +232,12 @@ Department_Summary:
 | # | Action | Category |
 |---|---|---|
 | 1 | Owner re-authorises Gmail: `python3 -m backend.app.services.gmail_auth_service` | Owner action (not a code change) |
-| 2 | Run the full DAG end-to-end and confirm all 10 tasks succeed with the 500-line population | Agent, after action 1 |
+| 2 | Run the full DAG end-to-end and confirm all 10 tasks succeed with the 476-line population | Agent, after action 1 |
 | 3 | Verify a submitted reply is parsed, validated, persisted and corrected — the one part of the pipeline never exercised with real data | Agent |
-| 4 | Decide D-1 (PO status scope) and, if needed, add a status filter to the freeze | Owner decision |
+| 4 | ~~Decide D-1 (PO status scope)~~ — **resolved: Open only, with the mid-month closure retained in its last active month** | Done 2026-11-17 |
 | 5 | ~~Decide D-2 (finance reporting channel for the exclusion list)~~ — **resolved: Power BI** | Done 2026-11-17 |
-| 6 | Publish the repository update once the Gmail re-authorisation is done | Agent |
+| 6 | Import the ERP a second time so the mid-month closure rule has a status history to read | Agent / ERP owner |
+| 7 | Publish the repository update | Agent |
 
 ### 2.7 Power BI Page 6 — the population scope (D-2, resolved)
 
@@ -247,6 +257,67 @@ not an authorised contact).
 **Invariant, now enforced by a test:** every department is either in the
 population or on the exclusion ledger. A department can never silently
 vanish from the reporting.
+
+### 2.8 The PO status scope (D-1, resolved)
+
+The owner decided: **only the `Open` PO lines are reported**, every
+filtered line goes onto the **same ledger** as the excluded departments
+(so it shows on Power BI Page 6 too), and a line that **closes partway
+through a month** is marked "已关闭" and **retained in its last active
+month**.
+
+**Population re-frozen under the new scope:**
+
+| Item | Before | After |
+|---|---|---|
+| `expected_po_lines` | 500 | **476** (all `po_status = 'Open'`) |
+| `population_exclusions` | 1 (department) | 1 (department) |
+| `population_status_exclusions` | — | **24** (21 `On Hold`, 3 `Closed`) |
+| `population_status_scope` | — | 1 (`Open` / `On Hold, Closed`) |
+| `population_closed_lines` | — | 0 (see below) |
+
+**Files created:**
+
+| File | Purpose |
+|---|---|
+| `backend/app/services/population_status_scope_service.py` | The scope logic: filter, last active month, closed-in-month detection, ledger persistence. |
+| `backend/sql/017_create_population_status_scope.sql` | `population_status_scope`, `population_status_exclusions`, `population_closed_lines`. |
+| `backend/sql/018_add_expected_po_line_status.sql` | `expected_po_lines.po_status` and `.lifecycle_status`. |
+| `backend/sql/019_create_powerbi_population_status_view.sql` | `vw_pbi_population_status_exclusions`, `vw_pbi_population_closed_lines`. |
+| `tests/test_population_status_scope.py` | 14 tests — the filter, the last active month, the mid-month closure. |
+
+**Files modified:**
+
+| File | Change |
+|---|---|
+| `scripts/freeze_population.py` | Applies the status scope; writes `excluded_po_lines.csv`. |
+| `backend/app/services/submission_persistence_service.py` | `ExpectedPopulationRow` carries `po_status` and `lifecycle_status`; both are persisted. |
+| `backend/app/services/completion_pipeline_service.py` | Carries `po_status` into the built population. |
+| `backend/app/services/master_excel_service.py` | `Master_Data` gained the `PO Status` and `Line Lifecycle` columns. |
+| `backend/sql/016_create_powerbi_population_exclusions_view.sql` | `vw_pbi_population_scope` gained `closed_in_month_line_count`. |
+
+**A semantic bug was found and fixed during the work.** The first
+implementation defined "last active month" as the month of the newest
+capture in which the line was still *Open*. That is wrong for a line
+that closes mid-month: such a line was still active *during* the month it
+closed, and that month is the one it must be retained in. The logic was
+rewritten around a single classifier, `classify_line_status()`, which
+returns the last active month, whether it is known, and whether the line
+closed in the reporting month.
+
+**Why the mid-month rule is dormant today.** The rule can only recognise
+a closing when the ERP has been **imported more than once**. The ERP has
+been imported **once** (`2026-11-09`, batch 1). There is no status
+history, so the 3 `Closed` lines were already closed at the first import
+and were never active in this cycle. Consequently `last_active_month` is
+`NULL` on all 24 ledger rows — it is left unknown rather than guessed —
+and `population_closed_lines` is empty. From the second import onwards
+the rule activates with no further decision.
+
+**Bug fixed — a view cannot change its column order in place.** Adding
+`closed_in_month_line_count` to `vw_pbi_population_scope` failed with
+`cannot change name of view column`. The migration now drops and
+recreates the view. No report reads from it during the swap.
 
 ---
 
@@ -280,3 +351,6 @@ identical to the local commit, and the credential backup folder is absent.
 | 2026-11-17 | DAG reporting-month override added, so a test run can target a throwaway period. |
 | 2026-11-17 | **Published to GitHub** — `https://github.com/COCO-WaterBird/AccrualFlow` (public, branch `main`, 80 files, commit `7055eba`). |
 | 2026-11-17 | **D-2 resolved by the owner** — the excluded departments are shown in Power BI (page 6). Two views added: `vw_pbi_population_scope` and `vw_pbi_population_exclusions`. |
+| 2026-11-17 | **D-1 resolved by the owner** — the report covers the `Open` PO lines only. The 24 filtered lines (21 `On Hold`, 3 `Closed`) went onto the exclusion ledger and appear on Power BI Page 6 via `vw_pbi_population_status_exclusions`. The population was re-frozen: 500 → **476** lines. |
+| 2026-11-17 | The mid-month closure rule implemented: a line that closes during a reporting month is marked "已关闭" and retained in its last active month, then moves to the ledger the following month. Dormant until the ERP has a second import. |
+| 2026-11-17 | `Master_Data` gained the `PO Status` and `Line Lifecycle` columns. Test suite: 170 → **184 passed**. |

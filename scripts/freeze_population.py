@@ -45,6 +45,13 @@ from backend.app.core.config import POPULATION_DIR
 from backend.app.services.completion_pipeline_service import (
     build_expected_population_from_rows,
 )
+from backend.app.services.population_status_scope_service import (
+    INCLUDED_STATUS,
+    LIFECYCLE_CLOSED_IN_MONTH,
+    apply_status_scope,
+    is_closed_in_last_active_month,
+    record_status_scope,
+)
 from backend.app.services.submission_persistence_service import (
     connect,
     freeze_expected_population,
@@ -52,6 +59,28 @@ from backend.app.services.submission_persistence_service import (
 
 
 DEFAULT_ENTITY = "2000"
+
+
+# ---------------------------------------------------------------------------
+# Marking the closed lines
+# ---------------------------------------------------------------------------
+
+
+def _mark_closed_lines(population: list, closed_keys: set) -> list:
+    """Mark the lines that closed during the reporting month.
+
+    A line that closed during the month stays in that month's
+    population, so the month in which the work finished still shows the
+    line and its final accepted value.  It is marked as closed so that
+    the reader knows it will not be asked again next month.
+    """
+    for row in population:
+        key = (row.po_number, row.po_line)
+
+        if key in closed_keys:
+            row.lifecycle_status = LIFECYCLE_CLOSED_IN_MONTH
+
+    return population
 
 
 # ---------------------------------------------------------------------------
@@ -504,6 +533,84 @@ def write_population_csv(
 # ---------------------------------------------------------------------------
 
 
+def write_status_exclusion_report(
+    reporting_month: str,
+    status_exclusions: list,
+    included_count: int,
+) -> Path:
+    """Write the filtered PO lines as a CSV for finance.
+
+    These are the individual PO lines that the status filter removed.
+    They are reported separately from the excluded departments, because a
+    department can be in the reporting scope and still have some of its
+    lines filtered out.
+    """
+    output_dir = POPULATION_DIR / reporting_month
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    report_path = output_dir / "excluded_po_lines.csv"
+
+    fieldnames = [
+        "cost_center",
+        "department",
+        "manager",
+        "po_number",
+        "po_line",
+        "po_status",
+        "exclusion_reason",
+        "po_line_amount",
+        "currency",
+        "last_active_month",
+        "description",
+    ]
+
+    with report_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for item in sorted(
+            status_exclusions,
+            key=lambda entry: (entry.cost_center, entry.po_number, entry.po_line),
+        ):
+            writer.writerow({
+                "cost_center": item.cost_center,
+                "department": item.department_name,
+                "manager": item.manager,
+                "po_number": item.po_number,
+                "po_line": item.po_line,
+                "po_status": item.po_status,
+                "exclusion_reason": item.exclusion_reason,
+                "po_line_amount": item.po_line_amount,
+                "currency": item.currency,
+                "last_active_month": (
+                    item.last_active_month.isoformat()
+                    if item.last_active_month
+                    else ""
+                ),
+                "description": item.po_description,
+            })
+
+    print(f"Status scope    : {INCLUDED_STATUS} only")
+    print(f"Filtered lines  : {len(status_exclusions)}")
+    print(f"Line report     : {report_path}")
+
+    if status_exclusions:
+        print()
+        print("FILTERED PO LINES (finance review required):")
+        for item in sorted(
+            status_exclusions,
+            key=lambda entry: (entry.po_status, entry.cost_center),
+        ):
+            print(
+                f"  {item.po_status:<9} "
+                f"{item.cost_center:<12} "
+                f"{item.po_number}/{item.po_line:<4} "
+                f"{item.exclusion_reason}"
+            )
+
+    return report_path
+
+
 def freeze(
     reporting_month: str,
     legal_entity: str = DEFAULT_ENTITY,
@@ -519,13 +626,52 @@ def freeze(
     print(f"Mapping entries: {len(mapping_rows)}")
     print(f"ERP PO lines   : {len(po_rows)}")
 
+    # The department scope: a department without PO lines has nothing to
+    # report on and is excluded.
     included_rows, exclusions = find_exclusions(mapping_rows, po_rows)
 
-    population = build_expected_population_from_rows(
+    # The PO status scope: only the Open lines are in the reporting
+    # scope.  The filtered lines go on the ledger.
+    scope = apply_status_scope(reporting_month, included_rows, legal_entity)
+
+    closed_in_month = is_closed_in_last_active_month(
+        reporting_month,
         included_rows,
+        legal_entity,
+    )
+
+    closed_keys = {
+        (item.po_number, item.po_line) for item in closed_in_month
+    }
+
+    status_rows = [
+        row
+        for row in included_rows
+        if (str(row["po_number"]), int(row["po_line"])) not in closed_keys
+        and (row.get("po_status") or "").strip().lower()
+        == INCLUDED_STATUS.lower()
+    ]
+
+    scope.closed_in_month = closed_in_month
+    scope.closed_in_month_count = len(closed_in_month)
+
+    # A line that closed during the reporting month stays in that month's
+    # population, marked as closed, so the month in which the work
+    # finished still shows the line and its final accepted value.
+    population_source_rows = list(status_rows) + [
+        row
+        for row in included_rows
+        if (str(row["po_number"]), int(row["po_line"])) in closed_keys
+    ]
+
+    population = build_expected_population_from_rows(
+        population_source_rows,
         reporting_month,
         legal_entity,
     )
+
+    # Mark the lines that closed during this month.
+    population = _mark_closed_lines(population, closed_keys)
 
     baseline_present = sum(
         1 for row in population if row.baseline_status == "PRESENT"
@@ -541,7 +687,15 @@ def freeze(
         exclusions,
         len(population),
     )
-    population_csv = write_population_csv(reporting_month, included_rows)
+    write_status_exclusion_report(
+        reporting_month,
+        scope.excluded,
+        len(population),
+    )
+    population_csv = write_population_csv(
+        reporting_month,
+        population_source_rows,
+    )
     print(f"Population CSV  : {population_csv}")
 
     if dry_run:
@@ -557,11 +711,12 @@ def freeze(
     )
 
     record_exclusions(reporting_month, legal_entity, exclusions)
+    record_status_scope(reporting_month, legal_entity, scope)
 
     contacts = sync_department_contacts(
         reporting_month,
         legal_entity,
-        included_rows,
+        population_source_rows,
     )
 
     print()

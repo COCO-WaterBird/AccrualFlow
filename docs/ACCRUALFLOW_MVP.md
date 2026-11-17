@@ -129,6 +129,8 @@ python3 scripts/freeze_population.py --month 2026-11 --dry-run  # preview
 | Rule | Behaviour |
 |---|---|
 | **Source** | `capex_po` joined with `costcenter_mapping` for one legal entity |
+| **PO status scope** | Only the **`Open`** PO lines are reported. A filtered line is recorded on the exclusion ledger, never silently dropped |
+| **Mid-month closure** | A line that closes **during** a reporting month is marked "已关闭" and **retained in its last active month** — the month in which the work finished. It leaves the population the following month |
 | **Recipient** | The `manager` of the cost centre is the authorised recipient, stored as both `department_owner` and `authorized_email` |
 | **Empty departments** | A cost centre with **no PO line** is excluded from the population — it has nothing to report on |
 | **Unmapped cost centres** | PO lines whose cost centre is not in the mapping are excluded and reported, never silently dropped |
@@ -153,6 +155,30 @@ Every excluded department is recorded in three places:
 department that was excluded is never an authorised contact, because it is
 never asked to report.
 
+### The PO lines that were filtered out by status
+
+The same rule applies at the level of the individual PO line. A line
+whose ERP status is not `Open` is filtered out, and it is recorded on the
+**same ledger**, in the same three places plus the Power BI scope page:
+
+1. **`population_status_exclusions`** — the line-level ledger, with the
+   PO number, the line, the status, the reason, and the last month in
+   which the line was active.
+2. **`data/runtime/population/<YYYY-MM>/excluded_po_lines.csv`**.
+3. **Power BI Page 6** — `vw_pbi_population_status_exclusions`.
+4. **`population_status_scope`** records the scope that was applied, so
+   the report always states what its population meant.
+
+`population_closed_lines` holds the lines that closed during the month.
+They are **in** the population of that month, marked as closed
+(`lifecycle_status = 'CLOSED_IN_MONTH'`), and are visible on Power BI
+Page 6 through `vw_pbi_population_closed_lines`.
+
+> The last active month can only be established when the ERP has been
+> imported more than once, because a status change has to be observed
+> before it can be recognised. With a single import there is no status
+> history, and the column stays empty rather than holding a guess.
+
 ---
 
 ## 6. Layout
@@ -175,23 +201,28 @@ backend/
       master_excel_service.py             # 4-sheet atomic export
       collection_request_service.py       # the outbound request cycle
       gmail_reply_service.py              # thread-correlated discovery
+      population_status_scope_service.py  # the Open-only PO status scope
   sql/
     012_create_expected_population.sql   # frozen population + baselines
     013_create_submission_pipeline.sql    # the submission pipeline schema
     014_create_powerbi_reporting_views.sql
     015_create_population_exclusions.sql # the exclusion ledger for finance
     016_create_powerbi_population_exclusions_view.sql  # Power BI page 6
+    017_create_population_status_scope.sql  # the PO status scope + ledgers
+    018_add_expected_po_line_status.sql    # po_status + lifecycle_status
+    019_create_powerbi_population_status_view.sql  # Power BI page 6, lines
   data/runtime/                           # writable runtime root
     email_archive/<YYYY-MM>/<msg_id>/*.eml
     attachments/<YYYY-MM>/<msg_id>/*.xlsx
     corrections/<YYYY-MM>/*.xlsx + *.json
     population/<YYYY-MM>/expected_population.csv
     population/<YYYY-MM>/excluded_departments.csv
+    population/<YYYY-MM>/excluded_po_lines.csv
     reports/<YYYY-MM>/CapEx_Completion_Master_<YYYY-MM>.xlsx
 airflow/dags/accrualflow_daily_monitoring.py
 scripts/dry_run_e2e.py                   # offline end-to-end dry run
 scripts/freeze_population.py             # freeze the expected population
-tests/                                    # 156 tests
+tests/                                    # 184 tests
 ```
 
 ---
@@ -265,6 +296,8 @@ with a scheduled refresh keeps the numbers and the audit trail in sync.
 | `vw_pbi_reporting_freshness` | Freshness indicator |
 | `vw_pbi_population_scope` | 6 — Population scope (who was asked to report) |
 | `vw_pbi_population_exclusions` | 6 — The excluded departments and why |
+| `vw_pbi_population_status_exclusions` | 6 — The PO lines filtered out by status and why |
+| `vw_pbi_population_closed_lines` | 6 — The PO lines that closed during the month |
 
 The views expose `suggested_pct` separately from `accepted_current_pct`, so
 a suggestion is never presented to a reviewer as an accepted number.
@@ -283,6 +316,29 @@ makes the scope of the collection explicit:
 Together, the two views state the full scope: **every** department is
 either in the population or on the exclusion ledger. A department can
 never silently vanish from the reporting.
+
+### Page 6 — the PO status scope
+
+The monthly report covers the **Open** PO lines only. A PO line that is
+filtered out is recorded on the **same ledger** as the excluded
+departments, so the report can never silently understate the commitment
+book.
+
+| View | What it answers |
+|---|---|
+| `vw_pbi_population_status_exclusions` | The PO lines that were filtered out by their ERP status, with the reason, the status scope that was applied, and the last month in which the line was active. |
+| `vw_pbi_population_closed_lines` | The PO lines that **closed during** the reporting month. They stay in that month's population, marked as closed, so the month in which the work finished still shows the line and its final accepted value. |
+
+A line that closes mid-month is retained in its **last active month**
+and is only removed from the population of the **following** month, where
+it appears on the ledger with its last active month. The `PO Status` and
+`Line Lifecycle` columns on `Master_Data` carry the same state into the
+Master Excel.
+
+> The last active month can only be established when the ERP has been
+> imported more than once, because a status change has to be observed
+> before it can be recognised. With a single import there is no status
+> history, and the column stays empty rather than holding a guess.
 
 Grant the reporting role read-only access:
 
