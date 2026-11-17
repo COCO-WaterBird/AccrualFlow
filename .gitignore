@@ -1,0 +1,39 @@
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Gmail OAuth credentials and tokens.
+# The backup folder holds a copy of the client secrets and must never
+# be committed either.
+credentials.json
+token.json
+**/credentials.json
+**/token.json
+backend/config/
+!backend/config/.gitkeep
+
+# Runtime artefacts: raw EML archives, attachments, corrections, reports.
+backend/data/
+backend/output/
+backend/archive/
+
+airflow/logs/
+airflow/config/
+airflow/plugins/__pycache__/
+
+# Editor and OS noise
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Excel lock files
+~$*.xlsx
