@@ -173,15 +173,18 @@ should be reported every month is a business rule — it is queued as
 
 ```
 $ /usr/local/bin/python3.12 -m pytest -q
-154 passed in 15.39s
+170 passed in 13.53s
 ```
 
 | Suite | Result |
 |---|---|
-| Whole suite (154 tests) | **154 passed** |
+| Whole suite (170 tests) | **170 passed** |
 | `tests/test_freeze_population.py` | 14 passed |
 | `tests/test_population_exclusions.py` | 4 passed |
 | `tests/test_deterministic_xlsx.py` | 8 passed |
+| `tests/test_dag_safety.py` | 7 passed |
+| `tests/test_xcom_payload.py` | 28 passed |
+| `tests/test_powerbi_views.py` | 7 passed |
 | Previously flaky export test, 10 consecutive runs | 10/10 passed |
 | Export determinism stress, 15 exports across second boundaries | 1 unique hash |
 
@@ -223,8 +226,27 @@ Department_Summary:
 | 2 | Run the full DAG end-to-end and confirm all 10 tasks succeed with the 500-line population | Agent, after action 1 |
 | 3 | Verify a submitted reply is parsed, validated, persisted and corrected — the one part of the pipeline never exercised with real data | Agent |
 | 4 | Decide D-1 (PO status scope) and, if needed, add a status filter to the freeze | Owner decision |
-| 5 | Decide D-2 (finance reporting channel for the exclusion list) | Owner decision |
+| 5 | ~~Decide D-2 (finance reporting channel for the exclusion list)~~ — **resolved: Power BI** | Done 2026-11-17 |
 | 6 | Publish the repository update once the Gmail re-authorisation is done | Agent |
+
+### 2.7 Power BI Page 6 — the population scope (D-2, resolved)
+
+The owner decided that the excluded departments are shown in **Power BI**.
+Two read-only views were added in
+`backend/sql/016_create_powerbi_population_exclusions_view.sql`:
+
+| View | What it answers |
+|---|---|
+| `vw_pbi_population_scope` | One row per department and month, flagged `INCLUDED` / `EXCLUDED` |
+| `vw_pbi_population_exclusions` | The excluded departments with the reason and the ERP line count |
+
+Verified for `2026-11`: 6 departments `INCLUDED` (159 / 95 / 67 / 52 / 58 /
+69 lines) and 1 `EXCLUDED` (`2000-900 Procurement`, `NO_PO_LINES`, 0 lines,
+not an authorised contact).
+
+**Invariant, now enforced by a test:** every department is either in the
+population or on the exclusion ledger. A department can never silently
+vanish from the reporting.
 
 ---
 
@@ -257,3 +279,4 @@ identical to the local commit, and the credential backup folder is absent.
 | 2026-11-17 | Readiness gate fixed: a failed reply discovery no longer reports the period as ready. |
 | 2026-11-17 | DAG reporting-month override added, so a test run can target a throwaway period. |
 | 2026-11-17 | **Published to GitHub** — `https://github.com/COCO-WaterBird/AccrualFlow` (public, branch `main`, 80 files, commit `7055eba`). |
+| 2026-11-17 | **D-2 resolved by the owner** — the excluded departments are shown in Power BI (page 6). Two views added: `vw_pbi_population_scope` and `vw_pbi_population_exclusions`. |

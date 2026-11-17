@@ -13,146 +13,128 @@ permission prompts are not decisions and are tracked in
 ## D-1 — Which PO statuses belong in the monthly report?
 
 **Priority:** High — affects every month from now on.
+**Status:** OPEN — awaiting your answer.
 
-### The question
+### What this means, in plain terms
 
-The ERP snapshot for entity `2000` contains 500 PO lines:
+Every month the company sends a list of PO lines to each department and
+asks "how far along is this line?" That list is the **expected population**.
 
-| `po_status` | PO lines | Currently in the population? |
-|---|---|---|
-| `Open` | 476 | Yes |
-| `On Hold` | 21 | Yes |
-| `Closed` | 3 | Yes |
+The ERP holds a status on every PO line. At the moment:
 
-Should all 500 be reported every month, or should some statuses be
-excluded?
+| `po_status` | PO lines | Cost centres | Amount | Share |
+|---|---|---|---|---|
+| `Open` | 476 | 6 | 345,241,000 | 95.2 % |
+| `On Hold` | 21 | 5 | 17,239,000 | 4.2 % |
+| `Closed` | 3 | 3 | 2,204,500 | 0.6 % |
+| **Total** | **500** | **6** | **364,684,500** | 100 % |
+
+The question is: **should all 500 lines be on the monthly list, or should
+some be left off?**
 
 ### Why it matters
 
-A **Closed** PO is finished — its completion is settled and will never
-change. Asking a department to confirm it every month adds work and adds
-rows that can never move. An **On Hold** PO may be blocked for reasons
-outside the department's control.
-
-There is also a comparability cost: a line that can never change makes
-the month-over-month "no change" statistics look flatter than the real
-movement in the open portfolio.
+- A **Closed** PO is finished. Its completion is settled at 100 % and will
+  never change. Asking a department to confirm it every month is work for
+  nothing, and it adds rows that can never move — which flattens the
+  "did anything change this month" statistics.
+- An **On Hold** PO is blocked for reasons often outside the
+  department's control. It is still CapEx money that is not being spent,
+  so keeping it visible is usually valuable.
 
 Right now **all 500 lines are included**, because the ERP import pulls
 every PO line without a status filter and the MVP document defines no
-status scope. This is the safe default, but it is not necessarily the
-right one.
+status scope. This is the safe default, but it may not be the right one.
 
 ### Options
 
-**A. Report all 500 lines, every month** — *status quo, recommended as
-the interim answer.*
+**A. Report all 500 lines every month** — *status quo; my recommendation.*
 
-- Nothing is filtered, so no line can ever be "missing" purely because
-  its PO closed.
+- Nothing is filtered, so no line can ever look "missing" just because its
+  PO closed.
 - The report is a complete picture of the CapEx commitment book.
-- Downside: departments keep re-confirming finished work, and the
-  portfolio statistics are diluted.
+- Downside: departments keep re-confirming finished work.
 
-**B. Report only `Open` POs (476 lines).**
+**B. Report only `Open` POs — 476 lines.**
 
-- The report tracks only the live portfolio, which is what a manager
-  actually acts on.
+- The report tracks only the live portfolio, which is what a manager acts
+  on.
 - Downside: a PO that closes mid-month disappears from the next month's
   report without a trace. It needs an explicit "closed this period"
   treatment, otherwise the disappearance looks like missing data.
 
-**C. Report `Open` + `On Hold` (497 lines), exclude `Closed`.**
+**C. Report `Open` + `On Hold` — 497 lines, exclude `Closed`.**
 
 - A balanced middle: closed work leaves the report, blocked work stays
   visible so the reason for the stall can be chased.
-- Downside: the same "disappears from the report" issue as B, for the
-  three closed lines.
+- Downside: same "disappears from the report" issue as B, for the 3
+  closed lines.
 
 ### Recommendation
 
-**Option A for now** — it is already running, it is the conservative
-choice, and it loses nothing. Raise this again once the first real
-submission cycle has been observed, because the right answer depends on
-how the departments actually respond to a closed PO being asked about.
+**Option A for now.** It is already running, it is the conservative
+choice, and it loses nothing. I would rather see how the departments
+actually respond to a closed PO being asked about before I narrow the
+scope for every future month.
 
-If you prefer B or C, say so and I will add the filter, apply it to
-`2026-11`, and record the exclusion in the same ledger that already
-reports the excluded departments.
+If you prefer B or C, say which and I will add the filter, re-freeze
+`2026-11`, and record the excluded lines on the same ledger that already
+reports the excluded departments — so they show up in Power BI Page 6 too.
 
 ### Consequences
 
 | If you choose | Then |
 |---|---|
 | A | Nothing changes. `2026-11` stays at 500 lines. |
-| B | The population drops to 476 lines. The 24 closed and on-hold lines move into the exclusion ledger, appear in `excluded_departments.csv` with reason `PO_STATUS_NOT_IN_SCOPE`, and appear in `Department_Summary` as excluded. I need **one more piece of business input** from you: should a line that closes mid-month show up in its last active month with a "closed" marker, or just vanish? |
-| C | The population drops to 497 lines. The same ledger and reporting treatment applies. |
+| B | The population drops to 476 lines. The 24 closed and on-hold lines move to the exclusion ledger, appear in `excluded_departments.csv`, and appear in `vw_pbi_population_scope` as excluded. I need **one more business input**: should a line that closes mid-month show up in its last active month marked "closed", or just disappear? |
+| C | The population drops to 497 lines. Same ledger and Power BI treatment. Same follow-up question about a line closing mid-month. |
 
 ---
 
 ## D-2 — How should finance receive the excluded-department list?
 
-**Priority:** Medium — the data exists and is correct; only the delivery
-channel is undecided.
+**Priority:** Medium.
+**Status:** **RESOLVED — 2026-11-17, by the owner.**
 
-### The question
+### Decision
 
-The excluded departments are currently recorded in three places: the
-`population_exclusions` table, a CSV per month, and the `Department_Summary`
-sheet of the Master Excel. Should anything more be sent, and to whom?
+**Option C — the exclusions are shown in Power BI.**
 
-### Why it matters
+### What was delivered
 
-You asked that finance know which departments were filtered out. That
-requirement is met — the information is recorded and is visible in the
-report finance already receives.
+Two read-only views were added in
+`backend/sql/016_create_powerbi_population_exclusions_view.sql`:
 
-The open question is whether finance needs it *proactively*, for example
-as a separate note or email to a finance mailbox, rather than having to
-open the Master Excel and look at the summary sheet.
-
-### Options
-
-**A. Keep it inside the Master Excel only** — *recommended.*
-
-- Zero extra machinery, no new recipients, no new notification path.
-- Finance already receives the Master Excel, and `Department_Summary` now
-  carries three new columns that state the scope of the report.
-- Downside: finance has to notice the row.
-
-**B. Also publish a monthly finance note** — a short email or a one-page
-PDF generated at freeze time listing the excluded departments.
-
-- The exclusions arrive with a push rather than a pull.
-- Downside: needs a recipient address, a send path, and — because
-  `ACCRUALFLOW_DRY_RUN` currently governs all outbound email — an
-  explicit decision about whether this note is sent by the pipeline or
-  prepared only.
-
-**C. Expose the exclusions in the Power BI layer** — add a page or a table
-built on `population_exclusions`.
-
-- Consistent with how the rest of the reporting works: Power BI reads the
-  database views, not the Master Excel.
-- Downside: a new view and a new report page, which is more work than the
-  value justifies for a list that is normally empty or nearly so.
-
-### Recommendation
-
-**Option A now, C if Power BI reporting becomes a priority.**
-
-For the current dataset the excluded list is a single line
-(`2000-900 Procurement`, no PO lines). Building a delivery mechanism for
-one line is not justified yet, and option A already satisfies the
-requirement.
-
-### Consequences
-
-| If you choose | Then |
+| View | What it answers |
 |---|---|
-| A | Nothing changes. The requirement is met. |
-| B | I need: the recipient address, and whether the note is **sent** or only **prepared** (`DRY_RUN`). I will not send anything without your explicit approval. |
-| C | I will add a read-only view (e.g. `vw_pbi_population_exclusions`) alongside the existing ones in `014_create_powerbi_reporting_views.sql`. |
+| `vw_pbi_population_scope` | One row per department and month, flagged `INCLUDED` or `EXCLUDED`. The expected line count is `0` for an excluded department. |
+| `vw_pbi_population_exclusions` | The excluded departments with the reason, the PO line count in the ERP, the size of the population, and whether finance has been told. |
+
+They belong on **Page 6 — Population scope** of the Power BI report.
+
+Verified output for `2026-11`:
+
+```
+cost_center  department                status    reason        expected_lines  authorised_contact
+2000-100     Manufacturing Engineering  INCLUDED  -                            159  true
+2000-110     Production Automation      INCLUDED  -                             95  true
+2000-120     Tooling Engineering        INCLUDED  -                             67  true
+2000-130     Facilities Engineering     INCLUDED  -                             52  true
+2000-140     Quality Engineering        INCLUDED  -                             58  true
+2000-150     IT Infrastructure          INCLUDED  -                             69  true
+2000-900     Procurement                EXCLUDED  NO_PO_LINES                   0  false
+```
+
+### Why this closes the requirement
+
+Together with the Master Excel sheet and the CSV, the exclusions are now
+reachable in three ways, and the Power BI view is the one that answers the
+standing question *"who was asked to report, and who was not?"* in a
+single table.
+
+The invariant is now enforced by a test: **every** department is either in
+the population or on the exclusion ledger. A department can never silently
+vanish from the reporting.
 
 ---
 

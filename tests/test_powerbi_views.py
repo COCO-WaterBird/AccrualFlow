@@ -50,6 +50,7 @@ def clean_month():
                     "DELETE FROM department_submissions WHERE reporting_month = %s",
                     "DELETE FROM department_status_history WHERE reporting_month = %s",
                     "DELETE FROM master_export_runs WHERE reporting_month = %s",
+                    "DELETE FROM population_exclusions WHERE reporting_month = %s",
                     "DELETE FROM expected_po_lines WHERE reporting_month = %s",
                     "DELETE FROM monthly_completion_baselines WHERE reporting_month = %s",
                     "DELETE FROM reporting_periods WHERE reporting_month = %s",
@@ -168,3 +169,127 @@ def test_the_master_export_is_recorded_for_the_freshness_view(clean_month):
 
     assert row["export_run_count"] == 1
     assert row["last_export_file"].startswith("CapEx_Completion_Master_")
+
+
+# ---------------------------------------------------------------------------
+# The population scope views
+#
+# Finance has to see which departments were asked to report and which were
+# filtered out.  These tests pin that the scope is complete and that an
+# excluded department is never treated as a reporting department.
+# ---------------------------------------------------------------------------
+
+
+def _record_exclusion(month: str, cost_center: str, reason: str = "NO_PO_LINES"):
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO population_exclusions (
+                    reporting_month, legal_entity,
+                    cost_center, department_name, manager,
+                    exclusion_reason, po_line_count
+                )
+                VALUES (%s, '2000', %s, 'Procurement', 'buyer@example.com', %s, 0)
+                ON CONFLICT (
+                    reporting_month, legal_entity,
+                    cost_center, exclusion_reason
+                )
+                DO UPDATE SET department_name = EXCLUDED.department_name
+                """,
+                (f"{month}-01", cost_center, reason),
+            )
+
+
+def test_the_exclusions_view_exposes_the_excluded_departments(clean_month):
+    _seed()
+    _record_exclusion(clean_month, "2000-900")
+
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT cost_center, exclusion_reason, po_line_count,
+                       population_line_count, is_authorised_contact
+                FROM vw_pbi_population_exclusions
+                WHERE reporting_month = %s
+                """,
+                (f"{clean_month}-01",),
+            )
+            rows = list(cur.fetchall())
+
+    assert len(rows) == 1
+
+    row = rows[0]
+
+    assert row["cost_center"] == "2000-900"
+    assert row["exclusion_reason"] == "NO_PO_LINES"
+    assert row["population_line_count"] == 5
+    assert row["is_authorised_contact"] is False
+
+
+def test_the_scope_view_covers_every_department(clean_month):
+    """Every department is either in the population or on the ledger."""
+    _seed()
+    _record_exclusion(clean_month, "2000-900")
+
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT cost_center, population_status,
+                       exclusion_reason, expected_line_count,
+                       is_authorised_contact
+                FROM vw_pbi_population_scope
+                WHERE reporting_month = %s
+                ORDER BY cost_center
+                """,
+                (f"{clean_month}-01",),
+            )
+            rows = list(cur.fetchall())
+
+    assert len(rows) == 2
+
+    included = [r for r in rows if r["population_status"] == "INCLUDED"]
+    excluded = [r for r in rows if r["population_status"] == "EXCLUDED"]
+
+    assert len(included) == 1
+    assert included[0]["cost_center"] == "2000-100"
+    assert included[0]["expected_line_count"] == 5
+    assert included[0]["is_authorised_contact"] is True
+
+    assert len(excluded) == 1
+    assert excluded[0]["cost_center"] == "2000-900"
+    assert excluded[0]["exclusion_reason"] == "NO_PO_LINES"
+    # An excluded department was never asked to report.
+    assert excluded[0]["expected_line_count"] == 0
+    assert excluded[0]["is_authorised_contact"] is False
+
+
+def test_the_scope_view_counts_match_the_population(clean_month):
+    _seed()
+    _record_exclusion(clean_month, "2000-900")
+
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT SUM(expected_line_count) AS total
+                FROM vw_pbi_population_scope
+                WHERE reporting_month = %s
+                """,
+                (f"{clean_month}-01",),
+            )
+            scope_total = cur.fetchone()["total"]
+
+            cur.execute(
+                """
+                SELECT COUNT(*) AS total
+                FROM expected_po_lines
+                WHERE reporting_month = %s
+                """,
+                (f"{clean_month}-01",),
+            )
+            population_total = cur.fetchone()["total"]
+
+    assert scope_total == population_total

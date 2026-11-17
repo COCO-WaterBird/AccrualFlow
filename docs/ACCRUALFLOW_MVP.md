@@ -180,6 +180,7 @@ backend/
     013_create_submission_pipeline.sql    # the submission pipeline schema
     014_create_powerbi_reporting_views.sql
     015_create_population_exclusions.sql # the exclusion ledger for finance
+    016_create_powerbi_population_exclusions_view.sql  # Power BI page 6
   data/runtime/                           # writable runtime root
     email_archive/<YYYY-MM>/<msg_id>/*.eml
     attachments/<YYYY-MM>/<msg_id>/*.xlsx
@@ -262,9 +263,26 @@ with a scheduled refresh keeps the numbers and the audit trail in sync.
 | `vw_pbi_submission_audit_history` | 3 — Submission history / audit trail |
 | `vw_pbi_completion_trends` | 4 — Completion trends |
 | `vw_pbi_reporting_freshness` | Freshness indicator |
+| `vw_pbi_population_scope` | 6 — Population scope (who was asked to report) |
+| `vw_pbi_population_exclusions` | 6 — The excluded departments and why |
 
 The views expose `suggested_pct` separately from `accepted_current_pct`, so
 a suggestion is never presented to a reviewer as an accepted number.
+
+### Page 6 — the population scope
+
+A department that was filtered out of the frozen population never appears
+in the department overview, because it contributes no expected line. Page 6
+makes the scope of the collection explicit:
+
+| View | What it answers |
+|---|---|
+| `vw_pbi_population_scope` | One row per department and month, flagged `INCLUDED` or `EXCLUDED`. The expected line count is `0` for an excluded department. |
+| `vw_pbi_population_exclusions` | The excluded departments with the reason (`NO_PO_LINES`, `NO_MANAGER`, `COST_CENTER_NOT_IN_MAPPING`), the PO line count in the ERP, and whether finance has been told. |
+
+Together, the two views state the full scope: **every** department is
+either in the population or on the exclusion ledger. A department can
+never silently vanish from the reporting.
 
 Grant the reporting role read-only access:
 
