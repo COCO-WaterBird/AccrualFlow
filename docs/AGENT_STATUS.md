@@ -328,8 +328,8 @@ recreates the view. No report reads from it during the swap.
 | Remote | `https://github.com/COCO-WaterBird/AccrualFlow` |
 | Visibility | Public |
 | Branch | `main` |
-| Commit | `7055eba` — "AccrualFlow: CapEx completion collection and monitoring pipeline" |
-| Files | 80 |
+| Commit | `1f3d3b3` — "apply the PO status scope (Open only) with a full exclusion ledger" |
+| Files | 85 |
 
 **Secrets are excluded.** The OAuth client secret, the OAuth token, the
 `.env` file and the whole `backend/config/` folder are in `.gitignore` and
@@ -354,3 +354,4 @@ identical to the local commit, and the credential backup folder is absent.
 | 2026-11-17 | **D-1 resolved by the owner** — the report covers the `Open` PO lines only. The 24 filtered lines (21 `On Hold`, 3 `Closed`) went onto the exclusion ledger and appear on Power BI Page 6 via `vw_pbi_population_status_exclusions`. The population was re-frozen: 500 → **476** lines. |
 | 2026-11-17 | The mid-month closure rule implemented: a line that closes during a reporting month is marked "已关闭" and retained in its last active month, then moves to the ledger the following month. Dormant until the ERP has a second import. |
 | 2026-11-17 | `Master_Data` gained the `PO Status` and `Line Lifecycle` columns. Test suite: 170 → **184 passed**. |
+| 2026-11-17 | **Pushed to GitHub** — commit `1f3d3b3` on `main`. |
