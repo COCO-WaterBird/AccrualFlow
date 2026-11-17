@@ -224,6 +224,25 @@ Department_Summary:
 | 3 | Verify a submitted reply is parsed, validated, persisted and corrected — the one part of the pipeline never exercised with real data | Agent |
 | 4 | Decide D-1 (PO status scope) and, if needed, add a status filter to the freeze | Owner decision |
 | 5 | Decide D-2 (finance reporting channel for the exclusion list) | Owner decision |
+| 6 | Publish the repository update once the Gmail re-authorisation is done | Agent |
+
+---
+
+## 6.1 Repository
+
+| Item | Value |
+|---|---|
+| Remote | `https://github.com/COCO-WaterBird/AccrualFlow` |
+| Visibility | Public |
+| Branch | `main` |
+| Commit | `7055eba` — "AccrualFlow: CapEx completion collection and monitoring pipeline" |
+| Files | 80 |
+
+**Secrets are excluded.** The OAuth client secret, the OAuth token, the
+`.env` file and the whole `backend/config/` folder are in `.gitignore` and
+are **not** in the repository. The `.env.example` file carries placeholders
+only. The published tree was verified against the remote: 80 files, byte
+identical to the local commit, and the credential backup folder is absent.
 
 ---
 
@@ -235,3 +254,6 @@ Department_Summary:
 | 2026-11-17 | Exclusion ledger (`population_exclusions`) + CSV + `Department_Summary` columns. |
 | 2026-11-17 | Reproducible workbook checksum fixed (`deterministic_xlsx.py`). |
 | 2026-11-17 | `AGENTS.md`, `docs/AGENT_STATUS.md`, `docs/DECISION_QUEUE.md` created. |
+| 2026-11-17 | Readiness gate fixed: a failed reply discovery no longer reports the period as ready. |
+| 2026-11-17 | DAG reporting-month override added, so a test run can target a throwaway period. |
+| 2026-11-17 | **Published to GitHub** — `https://github.com/COCO-WaterBird/AccrualFlow` (public, branch `main`, 80 files, commit `7055eba`). |
