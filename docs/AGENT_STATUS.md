@@ -396,7 +396,7 @@ recreates the view. No report reads from it during the swap.
 | Remote | `https://github.com/COCO-WaterBird/AccrualFlow` |
 | Visibility | Public |
 | Branch | `main` |
-| Commit | `972f7fb` — "distinguish a revoked Gmail token, and cut the dead weight" |
+| Commit | `2b2f3dd` — "let the CLI actually re-authorise, and run the DAG end to end" |
 | Files | 87 |
 
 **Secrets are excluded.** The OAuth client secret, the OAuth token, the
@@ -429,3 +429,4 @@ identical to the local commit, and the credential backup folder is absent.
 | 2026-11-17 | **Pushed to GitHub** — commit `972f7fb` on `main`. |
 | 2026-11-17 | **The Gmail re-authorisation bug is fixed.** The CLI told the owner to re-run a command that could never succeed, because the revoked token raised out of the refresh step before the consent flow could be reached. `get_gmail_service()` now takes `allow_reauthorise`; the CLI sets it, the pipeline does not. The account was re-authorised and a fresh token is in place (window to `2026-11-25`). Test suite: 205 → **206 passed**. |
 | 2026-11-17 | **The full DAG ran end to end, all 10 tasks green.** `RECONCILE: expected=87 | accepted=76 | export=87 | reconciled=True | collection_complete=True | data_ready=True`. Run against the throwaway period `2098-11`, so the live `2026-11` period was never written to. Nothing was sent: `ACCRUALFLOW_DRY_RUN=true`, the collection request is `DRY_RUN` with `sent_at = NULL`. `scripts/run_dag_test.sh` runs the same test. |
+| 2026-11-17 | **Pushed to GitHub** — commit `2b2f3dd` on `main`. |
