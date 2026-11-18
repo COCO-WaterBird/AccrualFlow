@@ -19,8 +19,13 @@ mid-month closure rule is implemented and covered by tests, and it
 activates by itself from the second ERP import onwards.
 
 The Gmail OAuth blocker is **cleared** — the account was re-authorised
-and a fresh token is in place. The remaining verification is a full DAG
-run end-to-end — see *Next actions*.
+and a fresh token is in place. The full DAG was then run end to end and
+all ten tasks passed.
+
+A **web dashboard** was added on 2026-11-17, because Power BI is
+Microsoft's own software and is not part of this repository. It reads
+the same nine reporting views that Power BI reads, so the two can never
+disagree. See section 2.9.
 
 ---
 
@@ -191,13 +196,14 @@ mid-month closure rule is implemented but dormant until the ERP has a
 
 ```
 $ .venv/bin/python -m pytest -q
-206 passed in 10.57s
+232 passed in 4.84s
 ```
 
 | Suite | Result |
 |---|---|
-| Whole suite (206 tests) | **206 passed** |
+| Whole suite (232 tests) | **232 passed** |
 | `tests/test_gmail_auth.py` | 22 passed (new) |
+| `tests/test_dashboard.py` | 26 passed (new) |
 | `tests/test_population_status_scope.py` | 14 passed |
 | `tests/test_freeze_population.py` | 14 passed |
 | `tests/test_population_exclusions.py` | 4 passed |
@@ -306,6 +312,7 @@ Department_Summary:
 | 5 | ~~Decide D-2 (finance reporting channel for the exclusion list)~~ — **resolved: Power BI** | Done 2026-11-17 |
 | 6 | Import the ERP a second time so the mid-month closure rule has a status history to read | Agent / ERP owner |
 | 7 | Publish the repository update | Agent |
+| 8 | ~~Owner wants to see the dashboard~~ — **done: the web dashboard is live at `/dashboard/dashboard.html`** | Done 2026-11-17 |
 
 ### 2.7 Power BI Page 6 — the population scope (D-2, resolved)
 
@@ -389,6 +396,69 @@ recreates the view. No report reads from it during the swap.
 
 ---
 
+### 2.9 The web dashboard
+
+The owner asked where to see the dashboard. The answer was: **Power BI
+is Microsoft's own software and is not in this repository** — the repo
+holds the nine reporting *views*, but no `.pbix` report file existed.
+
+Connecting the browser Power BI to a local PostgreSQL is not
+straightforward: the Power BI Service needs the Microsoft on-premises
+data gateway, and a Pro licence. The Power BI PostgreSQL connector also
+requires SSL, while the local database runs with `ssl = off`.
+
+So the project got its own dashboard. It reads **the same nine views**
+that Power BI reads, so the dashboard and the official report can never
+disagree — and a test asserts exactly that.
+
+```bash
+scripts/start_dashboard.sh
+#   -> http://127.0.0.1:8000/dashboard/dashboard.html
+```
+
+| Tab | View |
+|---|---|
+| 1 部门总览 | `vw_pbi_department_submission_overview` |
+| 2 校验异常 | `vw_pbi_validation_exceptions` |
+| 3 提交历史 | `vw_pbi_submission_audit_history` |
+| 4 完成率趋势 | `vw_pbi_completion_trends` |
+| 5 人口口径 | `vw_pbi_population_scope` + `vw_pbi_population_exclusions` |
+| 6 状态口径 | `vw_pbi_population_status_exclusions` + `vw_pbi_population_closed_lines` |
+
+**Files created:**
+
+| File | Purpose |
+|---|---|
+| `backend/app/services/dashboard_service.py` | The read only data layer over the nine views. |
+| `backend/app/static/dashboard.html` | The page. One self contained file, no build step, no CDN. |
+| `tests/test_dashboard.py` | 26 tests. |
+| `scripts/start_dashboard.sh` | The launcher. |
+
+**Files modified:**
+
+| File | Change |
+|---|---|
+| `backend/app/main.py` | The 11 read only dashboard routes, and the `/dashboard` static mount. |
+
+**A bug was found and fixed during the work.** The page showed
+"正在加载…" forever. The `/months` endpoint returns `{"months": [...]}`
+but the JavaScript treated the response as an array, so `months.forEach`
+threw and `init()` stopped before it ever reached the render. The
+response shape is now handled explicitly.
+
+**Verified in the browser**, all six tabs, both periods:
+
+```
+2026-11   476 lines, 6 departments, 24 status exclusions, 0 closed lines
+2098-11    87 lines, 1 department,  0 status exclusions, 0 closed lines
+```
+
+The dashboard shows the 24 filtered lines of `2026-11` with their reason,
+the department that was excluded, and the `last_active_month` marked
+"未知" rather than guessed — the same honest state as the ledger.
+
+---
+
 ## 6.1 Repository
 
 | Item | Value |
@@ -430,3 +500,4 @@ identical to the local commit, and the credential backup folder is absent.
 | 2026-11-17 | **The Gmail re-authorisation bug is fixed.** The CLI told the owner to re-run a command that could never succeed, because the revoked token raised out of the refresh step before the consent flow could be reached. `get_gmail_service()` now takes `allow_reauthorise`; the CLI sets it, the pipeline does not. The account was re-authorised and a fresh token is in place (window to `2026-11-25`). Test suite: 205 → **206 passed**. |
 | 2026-11-17 | **The full DAG ran end to end, all 10 tasks green.** `RECONCILE: expected=87 | accepted=76 | export=87 | reconciled=True | collection_complete=True | data_ready=True`. Run against the throwaway period `2098-11`, so the live `2026-11` period was never written to. Nothing was sent: `ACCRUALFLOW_DRY_RUN=true`, the collection request is `DRY_RUN` with `sent_at = NULL`. `scripts/run_dag_test.sh` runs the same test. |
 | 2026-11-17 | **Pushed to GitHub** — commit `2b2f3dd` on `main`. |
+| 2026-11-17 | **The web dashboard was built.** The owner asked where to see the dashboard; Power BI is Microsoft's software and is not in the repository (no `.pbix` file existed, and the browser Power BI needs the on-premises data gateway plus a Pro licence to reach a local database). The project now ships its own dashboard on the same nine reporting views, so it can never disagree with the official report. A bug was found and fixed: the page hung on "正在加载…" because the month list response shape was not handled. Verified in the browser, all six tabs, both periods. Test suite: 206 → **232 passed**. |

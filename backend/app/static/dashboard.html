@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AccrualFlow 看板</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --ink: #1a1d21;
+    --muted: #6b7280;
+    --line: #e4e7eb;
+    --accent: #2563eb;
+    --ok: #16a34a;
+    --warn: #d97706;
+    --bad: #dc2626;
+    --closed: #7c3aed;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                 "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  header h1 { font-size: 17px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .spacer { flex: 1; }
+  nav { display: flex; gap: 4px; flex-wrap: wrap; padding: 0 24px; background: var(--panel);
+        border-bottom: 1px solid var(--line); position: sticky; top: 57px; z-index: 19; }
+  nav button {
+    border: 0; background: none; padding: 11px 14px; cursor: pointer;
+    font-size: 13.5px; color: var(--muted); border-bottom: 2px solid transparent;
+    font-family: inherit;
+  }
+  nav button:hover { color: var(--ink); }
+  nav button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  main { padding: 22px 24px 60px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+           margin-bottom: 18px; overflow: hidden; }
+  .panel > h2 { margin: 0; padding: 13px 18px; font-size: 14px; font-weight: 650;
+                border-bottom: 1px solid var(--line); background: #fafbfc; }
+  .panel > h2 .hint { font-weight: 400; color: var(--muted); font-size: 12px; margin-left: 8px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+          gap: 14px; margin-bottom: 18px; }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+  .kpi .label { color: var(--muted); font-size: 12px; margin-bottom: 5px; }
+  .kpi .value { font-size: 25px; font-weight: 680; letter-spacing: -.4px; }
+  .kpi .value small { font-size: 14px; font-weight: 500; color: var(--muted); }
+  .kpi .foot { color: var(--muted); font-size: 11.5px; margin-top: 4px; }
+  .tablewrap { overflow-x: auto; max-height: 640px; overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--line);
+           white-space: nowrap; }
+  th { background: #fafbfc; font-weight: 600; color: var(--muted); font-size: 12px;
+       position: sticky; top: 0; z-index: 2; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr:hover td { background: #f8fafc; }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 11px; font-size: 11.5px;
+         font-weight: 600; border: 1px solid transparent; }
+  .tag.ok { background: #dcfce7; color: #15803d; }
+  .tag.warn { background: #fef3c7; color: #b45309; }
+  .tag.bad { background: #fee2e2; color: #b91c1c; }
+  .tag.info { background: #dbeafe; color: #1d4ed8; }
+  .tag.mute { background: #f1f5f9; color: #64748b; }
+  .tag.closed { background: #ede9fe; color: #6d28d9; }
+  .bar { height: 6px; border-radius: 3px; background: #e5e7eb; overflow: hidden; min-width: 70px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); }
+  .empty { padding: 26px 18px; color: var(--muted); text-align: center; font-size: 13px; }
+  .note { padding: 11px 18px; background: #fffbeb; border-bottom: 1px solid var(--line);
+          color: #92400e; font-size: 12.5px; }
+  .muted { color: var(--muted); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  select, button.act { font-family: inherit; font-size: 13px; padding: 6px 10px;
+      border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
+  button.act { cursor: pointer; }
+  button.act:hover { background: #f3f4f6; }
+  .barwrap { display: flex; align-items: center; gap: 8px; }
+  .barwrap .pct { font-variant-numeric: tabular-nums; min-width: 52px; text-align: right; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AccrualFlow 看板</h1>
+  <span class="sub" id="hdr-sub">CapEx 完工进度</span>
+  <div class="spacer"></div>
+  <label class="sub" for="month">报告月份</label>
+  <select id="month"></select>
+  <button class="act" id="reload">刷新</button>
+</header>
+
+<nav id="tabs"></nav>
+<main id="content"><div class="empty">正在加载…</div></main>
+
+<script>
+const PAGES = [
+  { id: "overview", label: "1 部门总览" },
+  { id: "exceptions", label: "2 校验异常" },
+  { id: "audit", label: "3 提交历史" },
+  { id: "trends", label: "4 完成率趋势" },
+  { id: "scope", label: "5 人口口径" },
+  { id: "status_scope", label: "6 状态口径" },
+];
+
+let MONTH = null;
+let CURRENT = "overview";
+let CACHE = {};
+
+/* ---------------- helpers ---------------- */
+
+function esc(v) {
+  if (v === null || v === undefined) return "";
+  return String(v).replace(/[&<>"']/g, c => (
+    {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]
+  ));
+}
+function pct(v, digits = 1) {
+  if (v === null || v === undefined) return "—";
+  return (Number(v) * 100).toFixed(digits) + "%";
+}
+function pctRaw(v, digits = 1) {
+  if (v === null || v === undefined) return "—";
+  return Number(v).toFixed(digits) + "%";
+}
+function money(v) {
+  if (v === null || v === undefined) return "—";
+  return Number(v).toLocaleString("en-US", {maximumFractionDigits: 0});
+}
+function num(v) {
+  if (v === null || v === undefined) return "—";
+  return Number(v).toLocaleString("en-US");
+}
+function dt(v) {
+  if (!v) return "—";
+  return String(v).replace("T", " ").slice(0, 19);
+}
+function tag(text, kind) {
+  if (text === null || text === undefined || text === "") return "";
+  return `<span class="tag ${kind || "mute"}">${esc(text)}</span>`;
+}
+function statusTag(s) {
+  const map = {
+    "NOT_SUBMITTED": "mute", "SUBMITTED": "info", "PARTIAL": "warn",
+    "COMPLETE": "ok", "CONFIRMED": "ok", "FORMAT_CONFIRMATION_REQUIRED": "warn",
+    "NEEDS_CORRECTION": "bad", "REJECTED": "bad", "MISSING": "bad",
+    "INVALID": "bad", "REVIEW_REQUIRED": "warn", "ACCEPTED": "ok",
+    "CLOSED_IN_MONTH": "closed", "OPEN": "warn", "RESOLVED": "ok",
+    "SUPERSEDED": "mute",
+  };
+  return tag(s, map[s] || "mute");
+}
+function sevTag(s) {
+  return tag(s, s === "ERROR" || s === "CRITICAL" ? "bad" : s === "WARNING" ? "warn" : "info");
+}
+function bar(v) {
+  if (v === null || v === undefined) return `<span class="muted">—</span>`;
+  const w = Math.max(0, Math.min(100, Number(v)));
+  return `<div class="barwrap"><div class="bar"><i style="width:${w}%"></i></div>` +
+         `<span class="pct">${Number(v).toFixed(1)}%</span></div>`;
+}
+function table(cols, rows, emptyMsg) {
+  if (!rows || rows.length === 0) {
+    return `<div class="empty">${esc(emptyMsg || "没有数据")}</div>`;
+  }
+  const head = cols.map(c => `<th>${esc(c.label)}</th>`).join("");
+  const body = rows.map(r => {
+    const tds = cols.map(c => {
+      const v = c.render ? c.render(r) : esc(r[c.key]);
+      return `<td class="${c.num ? "num" : ""}">${v}</td>`;
+    }).join("");
+    return `<tr>${tds}</tr>`;
+  }).join("");
+  return `<div class="tablewrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+function panel(title, hint, content, note) {
+  return `<section class="panel"><h2>${esc(title)}${hint ? `<span class="hint">${esc(hint)}</span>` : ""}</h2>` +
+         (note ? `<div class="note">${note}</div>` : "") + content + `</section>`;
+}
+function kpi(label, value, foot) {
+  return `<div class="kpi"><div class="label">${esc(label)}</div>` +
+         `<div class="value">${value}</div>` +
+         (foot ? `<div class="foot">${foot}</div>` : "") + `</div>`;
+}
+
+/* ---------------- data ---------------- */
+
+async function api(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(`${path} -> ${r.status}`);
+  return r.json();
+}
+
+async function load(month) {
+  const q = `?reporting_month=${encodeURIComponent(month)}`;
+  const [scope, statusScope, fresh] = await Promise.all([
+    api(`/api/v1/dashboard/population_scope${q}`),
+    api(`/api/v1/dashboard/population_status_exclusions${q}`),
+    api(`/api/v1/dashboard/freshness${q}`),
+  ]);
+  return { scope, statusScope, fresh };
+}
+
+/* ---------------- pages ---------------- */
+
+function renderOverview(d) {
+  const rows = d.overview || [];
+  const totalExpected = rows.reduce((a, r) => a + (r.expected_line_count || 0), 0);
+  const totalAccepted = rows.reduce((a, r) => a + (r.accepted_line_count || 0), 0);
+  const totalMissing  = rows.reduce((a, r) => a + (r.missing_line_count || 0), 0);
+  const totalInvalid  = rows.reduce((a, r) => a + (r.invalid_line_count || 0), 0);
+  const rate = totalExpected ? (100 * totalAccepted / totalExpected) : 0;
+
+  const kpis = `<div class="kpis">
+    ${kpi("在报 PO 行", num(totalExpected), "已冻结人口")}
+    ${kpi("已验收行", num(totalAccepted), `采纳率 ${rate.toFixed(1)}%`)}
+    ${kpi("缺失行", num(totalMissing), "部门未填写")}
+    ${kpi("无效行", num(totalInvalid), "校验不通过")}
+    ${kpi("部门数", num(rows.length), "已授权收件人")}
+  </div>`;
+
+  const t = table([
+    {label:"部门", key:"department_name"},
+    {label:"成本中心", key:"cost_center"},
+    {label:"负责人", key:"department_owner"},
+    {label:"应报行", key:"expected_line_count", num:true},
+    {label:"已验收", key:"accepted_line_count", num:true},
+    {label:"采纳率", num:true, render:r => bar(r.line_acceptance_rate_pct)},
+    {label:"缺失", key:"missing_line_count", num:true},
+    {label:"无效", key:"invalid_line_count", num:true},
+    {label:"待确认格式", key:"format_confirmation_count", num:true},
+    {label:"需复核", key:"review_required_count", num:true},
+    {label:"部门状态", render:r => statusTag(r.department_status)},
+    {label:"最近提交", render:r => dt(r.latest_submission_at)},
+    {label:"催办", render:r => statusTag(r.latest_correction_status)},
+  ], rows, "该月没有部门数据");
+
+  return kpis + panel("部门提交总览", "谁报了、报了多少、还差什么", t);
+}
+
+function renderExceptions(d) {
+  const rows = d.exceptions || [];
+  const kpis = `<div class="kpis">
+    ${kpi("异常总数", num(rows.length), "全部未解决项")}
+    ${kpi("涉及部门", num(new Set(rows.map(r => r.department_id)).size), "")}
+    ${kpi("涉及 PO 行", num(new Set(rows.map(r => r.po_number + "-" + r.po_line)).size), "")}
+  </div>`;
+
+  const t = table([
+    {label:"部门", key:"department_name"},
+    {label:"PO", render:r => `<span class="mono">${esc(r.po_number)}-${esc(r.po_line)}</span>`},
+    {label:"异常类型", render:r => sevTag(r.exception_code)},
+    {label:"严重度", render:r => sevTag(r.severity)},
+    {label:"说明", render:r => esc(r.detail)},
+    {label:"原始值", render:r => `<span class="mono">${esc(r.raw_value)}</span>`},
+    {label:"识别格式", key:"format_detection"},
+    {label:"建议值", num:true, render:r => pct(r.suggested_pct)},
+    {label:"验收值", num:true, render:r => pct(r.accepted_current_pct)},
+    {label:"上期值", num:true, render:r => pct(r.previous_pct)},
+    {label:"变动(pp)", num:true, render:r => r.change_percentage_points === null ? "—" : Number(r.change_percentage_points).toFixed(1)},
+    {label:"提交人", key:"submitted_by"},
+    {label:"提交时间", render:r => dt(r.submitted_at)},
+  ], rows, "该月没有校验异常 —— 全部行都通过");
+
+  return kpis + panel("校验异常明细",
+    "建议值与验收值分开显示，建议值永远不会被当成已验收的数字",
+    t);
+}
+
+function renderAudit(d) {
+  const rows = d.audit || [];
+  const t = table([
+    {label:"版本", key:"version", num:true},
+    {label:"部门", key:"department_name"},
+    {label:"处理状态", render:r => statusTag(r.processing_status)},
+    {label:"总行数", key:"line_count", num:true},
+    {label:"已验收", key:"accepted_line_count", num:true},
+    {label:"未解决异常", key:"open_issue_count", num:true},
+    {label:"提交人", key:"submitted_by"},
+    {label:"提交时间", render:r => dt(r.submitted_at)},
+    {label:"邮件主题", render:r => esc(r.subject)},
+    {label:"发件人", key:"sender_address"},
+    {label:"原始邮件校验和", render:r => `<span class="mono">${esc((r.eml_sha256||"").slice(0,12))}</span>`},
+    {label:"附件", render:r => esc(r.source_attachment_path)},
+    {label:"催办状态", render:r => statusTag(r.correction_status)},
+    {label:"部门状态", render:r => statusTag(r.department_status)},
+  ], rows, "该月还没有任何提交记录");
+
+  return panel("提交历史与审计链",
+    "每个版本及其完整邮件证据链 —— 原始 .eml 与附件都留了档",
+    t);
+}
+
+function renderTrends(d) {
+  const rows = d.trends || [];
+  const series = d.series || [];
+
+  const max = Math.max(1, ...series.map(s => s.acceptance_rate_pct || 0));
+  const seriesHtml = series.length ? `<div class="tablewrap"><table><thead><tr>
+      <th>月份</th><th class="num">应报行</th><th class="num">已验收</th>
+      <th class="num">采纳率</th><th>采纳率图</th><th class="num">平均完工%</th>
+      <th class="num">金额合计</th></tr></thead><tbody>` +
+    series.map(s => `<tr>
+      <td>${esc(s.reporting_month)}</td>
+      <td class="num">${num(s.expected_line_count)}</td>
+      <td class="num">${num(s.accepted_line_count)}</td>
+      <td class="num">${s.acceptance_rate_pct === null ? "—" : Number(s.acceptance_rate_pct).toFixed(2)+"%"}</td>
+      <td><div class="barwrap"><div class="bar" style="min-width:120px"><i style="width:${(s.acceptance_rate_pct||0)/max*100}%"></i></div></div></td>
+      <td class="num">${s.avg_completion_pct === null ? "—" : Number(s.avg_completion_pct).toFixed(2)+"%"}</td>
+      <td class="num">${money(s.total_amount)}</td>
+    </tr>`).join("") + `</tbody></table></div>` : `<div class="empty">没有趋势数据</div>`;
+
+  const t = table([
+    {label:"部门", key:"department_name"},
+    {label:"PO", render:r => `<span class="mono">${esc(r.po_number)}-${esc(r.po_line)}</span>`},
+    {label:"说明", key:"po_description"},
+    {label:"金额", num:true, render:r => money(r.po_line_amount)},
+    {label:"上期", num:true, render:r => pct(r.previous_completion_pct)},
+    {label:"本期", num:true, render:r => pct(r.accepted_current_pct)},
+    {label:"变动(pp)", num:true, render:r => r.change_percentage_points === null ? "—" : Number(r.change_percentage_points).toFixed(1)},
+    {label:"校验", render:r => statusTag(r.validation_status)},
+    {label:"原因", render:r => statusTag(r.reason_status)},
+    {label:"备注", key:"remarks"},
+  ], rows, "该月没有 PO 行数据");
+
+  return panel("月度趋势", "跨所有报告月份的采纳率与平均完工率", seriesHtml) +
+         panel("本月 PO 行明细", "每一条 PO 行的完工状态", t);
+}
+
+function renderScope(d) {
+  const scope = d.scope || [];
+  const excl = d.exclusions || [];
+  const included = scope.filter(r => r.population_status === "INCLUDED");
+  const excluded = scope.filter(r => r.population_status === "EXCLUDED");
+  const totalLines = included.reduce((a, r) => a + (r.expected_line_count || 0), 0);
+
+  const kpis = `<div class="kpis">
+    ${kpi("纳入部门", num(included.length), "已发收集请求")}
+    ${kpi("排除部门", num(excluded.length), "在排除台账上")}
+    ${kpi("在报 PO 行", num(totalLines), "仅 Open 状态")}
+    ${kpi("本月关闭行", num(included.reduce((a,r)=>a+(r.closed_in_month_line_count||0),0)), "保留在最后一个活跃月")}
+  </div>`;
+
+  const scopeT = table([
+    {label:"部门", key:"department_name"},
+    {label:"成本中心", key:"cost_center"},
+    {label:"负责人", key:"department_owner"},
+    {label:"人口状态", render:r => tag(r.population_status, r.population_status === "INCLUDED" ? "ok" : "bad")},
+    {label:"排除原因", render:r => r.exclusion_reason ? tag(r.exclusion_reason, "warn") : `<span class="muted">—</span>`},
+    {label:"应报行", key:"expected_line_count", num:true},
+    {label:"本月关闭", key:"closed_in_month_line_count", num:true},
+    {label:"授权收件人", render:r => r.is_authorised_contact ? tag("是","ok") : tag("否","mute")},
+  ], scope, "没有人口数据");
+
+  const exclT = table([
+    {label:"部门", key:"department_name"},
+    {label:"成本中心", key:"cost_center"},
+    {label:"负责人", key:"manager"},
+    {label:"原因", render:r => tag(r.exclusion_reason, "warn")},
+    {label:"ERP 行数", key:"po_line_count", num:true},
+    {label:"本月人口", key:"population_line_count", num:true},
+    {label:"本部门在报", key:"included_line_count_for_cost_center", num:true},
+    {label:"已通知财务", render:r => r.reported_to_finance ? tag("是","ok") : tag("否","mute")},
+    {label:"通知时间", render:r => dt(r.reported_at)},
+  ], excl, "没有被排除的部门");
+
+  return kpis +
+    panel("人口口径", "每个部门要么在人口里，要么在排除台账上 —— 不会有部门悄悄消失",
+      scopeT,
+      `<b>每一个部门</b>要么在人口里，要么在排除台账上。排除的部门永远不会被当作收件人，因为它从不被要求上报。`) +
+    panel("被排除的部门", "财务必须能看到这些部门存在、并且知道为什么被排除", exclT);
+}
+
+function renderStatusScope(d) {
+  const rows = d.statusScope || [];
+  const closed = d.closedLines || [];
+
+  const byStatus = {};
+  rows.forEach(r => { byStatus[r.po_status] = (byStatus[r.po_status] || 0) + 1; });
+  const statusChips = Object.entries(byStatus).map(([k, v]) =>
+    `<span class="tag ${k === "Closed" ? "bad" : "warn"}">${esc(k)} · ${v} 行</span>`
+  ).join(" ");
+
+  const totalAmount = rows.reduce((a, r) => a + Number(r.po_line_amount || 0), 0);
+
+  const kpis = `<div class="kpis">
+    ${kpi("被过滤行", num(rows.length), statusChips || "无")}
+    ${kpi("涉及金额", money(totalAmount), "未计入本月在报")}
+    ${kpi("本月关闭行", num(closed.length), "保留在最后一个活跃月")}
+    ${kpi("口径", rows.length ? esc(rows[0].included_status) : "Open", rows.length ? "排除：" + esc(rows[0].excluded_statuses) : "")}
+  </div>`;
+
+  const t = table([
+    {label:"部门", key:"department_name"},
+    {label:"成本中心", key:"cost_center"},
+    {label:"负责人", key:"manager"},
+    {label:"PO", render:r => `<span class="mono">${esc(r.po_number)}-${esc(r.po_line)}</span>`},
+    {label:"ERP 状态", render:r => tag(r.po_status, r.po_status === "Closed" ? "bad" : "warn")},
+    {label:"说明", key:"po_description"},
+    {label:"金额", num:true, render:r => money(r.po_line_amount)},
+    {label:"币种", key:"currency"},
+    {label:"最后活跃月", render:r => r.last_active_month ? esc(r.last_active_month) : `<span class="muted">未知</span>`},
+    {label:"本部门在报", key:"included_line_count_for_cost_center", num:true},
+    {label:"本月人口", key:"population_line_count", num:true},
+  ], rows, "没有被状态过滤掉的行 —— 该月全部 PO 行都是 Open");
+
+  const cT = table([
+    {label:"部门", key:"department_name"},
+    {label:"成本中心", key:"cost_center"},
+    {label:"PO", render:r => `<span class="mono">${esc(r.po_number)}-${esc(r.po_line)}</span>`},
+    {label:"状态", render:r => tag(r.po_status, "closed")},
+    {label:"说明", key:"po_description"},
+    {label:"金额", num:true, render:r => money(r.po_line_amount)},
+    {label:"最后活跃月", render:r => esc(r.last_active_month)},
+    {label:"最后完工率", num:true, render:r => pct(r.last_reported_completion_pct)},
+  ], closed, "本月没有中途关闭的 PO 行");
+
+  const note = rows.length
+    ? `<b>为什么</b>：月报只覆盖 <b>${esc(rows[0].included_status)}</b> 状态的 PO 行（排除 ${esc(rows[0].excluded_statuses)}）。
+       被过滤的行记在同一本台账上，所以报表永远不会悄悄少报承诺。
+       <br><b>最后活跃月显示"未知"</b> 是正常的 —— 需要 ERP 导入两次以上才能观察到状态变化，第二次导入后规则会自动生效。`
+    : "";
+
+  return kpis +
+    panel("被状态过滤掉的 PO 行", "同一本台账：被排除的部门 + 被过滤的行", t, note) +
+    panel("本月中途关闭的 PO 行", "标记为已关闭并保留在它最后一个活跃月", cT);
+}
+
+/* ---------------- shell ---------------- */
+
+async function render() {
+  const content = document.getElementById("content");
+  content.innerHTML = `<div class="empty">正在加载…</div>`;
+  try {
+    if (!CACHE[MONTH]) {
+      const q = `?reporting_month=${encodeURIComponent(MONTH)}`;
+      const [overview, exceptions, audit, trends, series, scope,
+             exclusions, statusScope, closedLines, fresh] = await Promise.all([
+        api(`/api/v1/dashboard/department_overview${q}`),
+        api(`/api/v1/dashboard/validation_exceptions${q}`),
+        api(`/api/v1/dashboard/submission_audit${q}`),
+        api(`/api/v1/dashboard/completion_trends${q}`),
+        api(`/api/v1/dashboard/trend_series`),
+        api(`/api/v1/dashboard/population_scope${q}`),
+        api(`/api/v1/dashboard/population_exclusions${q}`),
+        api(`/api/v1/dashboard/population_status_exclusions${q}`),
+        api(`/api/v1/dashboard/population_closed_lines${q}`),
+        api(`/api/v1/dashboard/freshness${q}`),
+      ]);
+      CACHE[MONTH] = {overview, exceptions, audit, trends, series, scope,
+                      exclusions, statusScope, closedLines, fresh};
+    }
+    const d = CACHE[MONTH];
+
+    let html = "";
+    if (CURRENT === "overview")       html = renderOverview(d);
+    if (CURRENT === "exceptions")     html = renderExceptions(d);
+    if (CURRENT === "audit")          html = renderAudit(d);
+    if (CURRENT === "trends")         html = renderTrends(d);
+    if (CURRENT === "scope")          html = renderScope(d);
+    if (CURRENT === "status_scope")   html = renderStatusScope(d);
+
+    const f = (d.fresh && d.fresh[0]) || {};
+    const sub = f.last_export_at
+      ? `Master Excel: ${f.last_export_file || "—"} · ${dt(f.last_export_at)}`
+      : "本月尚未发布 Master Excel";
+    document.getElementById("hdr-sub").textContent = sub;
+
+    content.innerHTML = html;
+    document.querySelectorAll("#tabs button").forEach(b => {
+      b.classList.toggle("active", b.dataset.page === CURRENT);
+    });
+  } catch (e) {
+    content.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`;
+  }
+}
+
+function buildTabs() {
+  const nav = document.getElementById("tabs");
+  nav.innerHTML = "";
+  PAGES.forEach(p => {
+    const b = document.createElement("button");
+    b.textContent = p.label;
+    b.dataset.page = p.id;
+    b.onclick = () => { CURRENT = p.id; render(); };
+    nav.appendChild(b);
+  });
+}
+
+async function init() {
+  buildTabs();
+  const resp = await api("/api/v1/dashboard/months");
+  const months = Array.isArray(resp) ? resp : (resp.months || []);
+  const sel = document.getElementById("month");
+  sel.innerHTML = "";
+  months.forEach(m => {
+    const o = document.createElement("option");
+    o.value = m; o.textContent = m;
+    sel.appendChild(o);
+  });
+  MONTH = months[0] || null;
+  if (!MONTH) {
+    document.getElementById("content").innerHTML =
+      `<div class="empty">数据库里还没有报告月份。请先运行 scripts/freeze_population.py。</div>`;
+    return;
+  }
+  sel.value = MONTH;
+  sel.onchange = () => { MONTH = sel.value; render(); };
+  document.getElementById("reload").onclick = () => { delete CACHE[MONTH]; render(); };
+  await render();
+}
+
+init();
+</script>
+</body>
+</html>

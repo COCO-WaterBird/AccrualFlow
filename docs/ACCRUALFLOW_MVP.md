@@ -222,7 +222,9 @@ backend/
 airflow/dags/accrualflow_daily_monitoring.py
 scripts/dry_run_e2e.py                   # offline end-to-end dry run
 scripts/freeze_population.py             # freeze the expected population
-tests/                                    # 184 tests
+scripts/start_dashboard.sh               # the web dashboard
+scripts/run_dag_test.sh                  # the DAG against a throwaway month
+tests/                                    # 232 tests
 ```
 
 ---
@@ -278,6 +280,10 @@ python3 scripts/freeze_population.py --month 2026-11
 
 # 6. Offline end-to-end dry run
 python3 scripts/dry_run_e2e.py
+
+# 7. The web dashboard
+scripts/start_dashboard.sh
+#   -> http://127.0.0.1:8000/dashboard/dashboard.html
 ```
 
 ---
@@ -350,6 +356,51 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO accrualflow_pbi;
 
 > The Power BI Service refresh is **not** triggered from Airflow. It needs
 > its own credentials and permissions; the DAG only marks the data as ready.
+
+---
+
+## 9.1 The web dashboard
+
+Power BI is Microsoft's own software and is not part of this repository.
+For a browser view that needs no licence and no gateway, the project
+ships its own dashboard.
+
+```bash
+scripts/start_dashboard.sh
+#   -> http://127.0.0.1:8000/dashboard/dashboard.html
+```
+
+It reads **the same nine views** that Power BI reads, so the dashboard
+and the official report can never disagree. A test asserts exactly that.
+
+| Tab | View | What it shows |
+|---|---|---|
+| 1 部门总览 | `vw_pbi_department_submission_overview` | Per department: expected, submitted and accepted lines, the acceptance rate, and the current state |
+| 2 校验异常 | `vw_pbi_validation_exceptions` | Every line level exception, with the raw value, the detected format, the suggested value **and** the accepted value shown separately |
+| 3 提交历史 | `vw_pbi_submission_audit_history` | One row per submission version with the full email evidence chain |
+| 4 完成率趋势 | `vw_pbi_completion_trends` | The month by month acceptance series, and the PO lines of the month |
+| 5 人口口径 | `vw_pbi_population_scope`, `vw_pbi_population_exclusions` | Who was asked to report and who was not, and why |
+| 6 状态口径 | `vw_pbi_population_status_exclusions`, `vw_pbi_population_closed_lines` | The PO lines filtered out by status, and the lines that closed during the month |
+
+The data layer is `backend/app/services/dashboard_service.py`; the page
+is `backend/app/static/dashboard.html`. The API is read only:
+
+```
+GET /api/v1/dashboard/months
+GET /api/v1/dashboard/department_overview?reporting_month=2026-11
+GET /api/v1/dashboard/validation_exceptions?reporting_month=2026-11
+GET /api/v1/dashboard/submission_audit?reporting_month=2026-11
+GET /api/v1/dashboard/completion_trends?reporting_month=2026-11
+GET /api/v1/dashboard/trend_series
+GET /api/v1/dashboard/freshness?reporting_month=2026-11
+GET /api/v1/dashboard/population_scope?reporting_month=2026-11
+GET /api/v1/dashboard/population_exclusions?reporting_month=2026-11
+GET /api/v1/dashboard/population_status_exclusions?reporting_month=2026-11
+GET /api/v1/dashboard/population_closed_lines?reporting_month=2026-11
+```
+
+> The dashboard is read only. It cannot change a submission, a status or
+> a population.
 
 ---
 

@@ -8,8 +8,11 @@ host.  The archive metadata is exposed through a dedicated download route
 that resolves the path against the configured data root.
 """
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from backend.app.core.config import (
     DATA_DIR,
@@ -17,6 +20,19 @@ from backend.app.core.config import (
 )
 from backend.app.services.department_status_service import (
     list_department_statuses,
+)
+from backend.app.services.dashboard_service import (
+    available_months,
+    completion_trend_series,
+    completion_trends,
+    department_overview,
+    population_closed_lines,
+    population_exclusions,
+    population_scope,
+    population_status_exclusions,
+    reporting_freshness,
+    submission_audit,
+    validation_exceptions,
 )
 from backend.app.services.submission_persistence_service import (
     _month_start,
@@ -28,6 +44,14 @@ app = FastAPI(
     title="AccrualFlow AI",
     description="CapEx Accrual Automation API",
     version="0.2.0",
+)
+
+# The web dashboard.  It reads the same reporting views that Power BI
+# reads, so the two can never disagree.
+app.mount(
+    "/dashboard",
+    StaticFiles(directory=Path(__file__).parent / "static", html=True),
+    name="dashboard",
 )
 
 
@@ -340,6 +364,151 @@ def get_exports(
             status_code=503,
             detail="The reporting database is unavailable",
         ) from exc
+
+
+# ---------------------------------------------------------------------------
+# The web dashboard
+# ---------------------------------------------------------------------------
+
+
+def _dashboard(query, reader):
+    """Run one reporting query and return its rows.
+
+    The dashboard is read only.  A bad reporting month is a client error;
+    an unreachable database is a service error.
+    """
+    try:
+        return reader(query)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail="The reporting database is unavailable",
+        ) from exc
+
+
+@app.get("/api/v1/dashboard/months")
+def get_dashboard_months():
+    """Every reporting month that has a frozen population, newest first."""
+    try:
+        return {"months": available_months()}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail="The reporting database is unavailable",
+        ) from exc
+
+
+@app.get("/api/v1/dashboard/department_overview")
+def get_dashboard_overview(
+    reporting_month: str = Query(..., description="YYYY-MM"),
+):
+    """Page 1 - one row per department with its line counts."""
+    return _dashboard(
+        reporting_month,
+        lambda m: department_overview(m),
+    )
+
+
+@app.get("/api/v1/dashboard/validation_exceptions")
+def get_dashboard_exceptions(
+    reporting_month: str = Query(..., description="YYYY-MM"),
+):
+    """Page 2 - the line level validation exceptions."""
+    return _dashboard(
+        reporting_month,
+        lambda m: validation_exceptions(m),
+    )
+
+
+@app.get("/api/v1/dashboard/submission_audit")
+def get_dashboard_audit(
+    reporting_month: str = Query(..., description="YYYY-MM"),
+):
+    """Page 3 - the submission versions with their email evidence."""
+    return _dashboard(
+        reporting_month,
+        lambda m: submission_audit(m),
+    )
+
+
+@app.get("/api/v1/dashboard/completion_trends")
+def get_dashboard_trends(
+    reporting_month: str = Query(..., description="YYYY-MM"),
+):
+    """Page 4 - the PO lines of the month with their completion state."""
+    return _dashboard(
+        reporting_month,
+        lambda m: completion_trends(m),
+    )
+
+
+@app.get("/api/v1/dashboard/trend_series")
+def get_dashboard_trend_series():
+    """Page 4 - the month by month acceptance series."""
+    try:
+        return completion_trend_series()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail="The reporting database is unavailable",
+        ) from exc
+
+
+@app.get("/api/v1/dashboard/freshness")
+def get_dashboard_freshness(
+    reporting_month: str = Query(..., description="YYYY-MM"),
+):
+    """When the Master Excel of the month was last published."""
+    return _dashboard(
+        reporting_month,
+        lambda m: reporting_freshness(m),
+    )
+
+
+@app.get("/api/v1/dashboard/population_scope")
+def get_dashboard_population_scope(
+    reporting_month: str = Query(..., description="YYYY-MM"),
+):
+    """Page 6 - every department, INCLUDED or EXCLUDED."""
+    return _dashboard(
+        reporting_month,
+        lambda m: population_scope(m),
+    )
+
+
+@app.get("/api/v1/dashboard/population_exclusions")
+def get_dashboard_population_exclusions(
+    reporting_month: str = Query(..., description="YYYY-MM"),
+):
+    """Page 6 - the excluded departments and why."""
+    return _dashboard(
+        reporting_month,
+        lambda m: population_exclusions(m),
+    )
+
+
+@app.get("/api/v1/dashboard/population_status_exclusions")
+def get_dashboard_status_exclusions(
+    reporting_month: str = Query(..., description="YYYY-MM"),
+):
+    """Page 6 - the PO lines that were filtered out by their status."""
+    return _dashboard(
+        reporting_month,
+        lambda m: population_status_exclusions(m),
+    )
+
+
+@app.get("/api/v1/dashboard/population_closed_lines")
+def get_dashboard_closed_lines(
+    reporting_month: str = Query(..., description="YYYY-MM"),
+):
+    """Page 6 - the PO lines that closed during the month."""
+    return _dashboard(
+        reporting_month,
+        lambda m: population_closed_lines(m),
+    )
 
 
 @app.get("/api/v1/archives/{archive_id}/eml")
