@@ -500,6 +500,62 @@ sidebar collapses into a drawer under 900px. Both periods were checked:
 `2026-11` (476 lines, 6 departments, 24 status exclusions) and `2098-11`
 (87 lines, 1 department). Full test suite: **232 passed**.
 
+### 2.11 The monthly cycle and the default reporting period
+
+**The dashboard opened on the wrong period.** The owner asked what
+`2098-11 Period` meant. It is a **test period** — the `Dry Run` source
+in the database says so:
+
+| reporting_month | population_source | rows | departments |
+|---|---|---|---|
+| `2026-11-01` | Mock ERP + costcenter_mapping | **476** | 6 |
+| `2098-11-01` | **Dry Run** | 87 | 1 |
+
+**The bug.** The month list was sorted newest first, and `2098` is
+newer than `2026`, so the test period sorted first — and the page
+opened on `months[0]`. The owner saw synthetic numbers where a real
+reporting result should have been.
+
+**The fix.**
+
+- `default_month()` picks the live period: not a dry run, and not in a
+  future year. The API returns it as `default`.
+- `is_test_period()` identifies a dry run period. The page shows a
+  **warning banner** and the selector labels it `(test)`, so a
+  synthetic period can never be mistaken for a real one.
+
+**The monthly collection cycle.** The owner starts one run per reporting
+month from the dashboard. The trigger only asks Airflow to start a run;
+the pipeline still lives in the DAG, where every task is retryable.
+`cycle_progress_service.py` records every stage the moment it finishes,
+with the error message when it fails, so the dashboard shows where the
+month stands instead of only that something happened.
+
+**Four bugs found and fixed while wiring this up.**
+
+| Bug | Symptom | Fix |
+|---|---|---|
+| The legal entity was dropped between the tasks | Every task after the ERP import died with a bare `KeyError: 'legal_entity'` | It now travels with the period through the whole chain |
+| The reporting month was read from the wrong place | A manual run for `2098-11` collected `2026-11` | Airflow merges the run configuration into the params, so the month sits at the **top level** of them, not under a `conf` key. It is now read from both |
+| A test wrote into the live reporting month | The dashboard reported *"The cycle for 2026-11 has a failed stage"* for a month that never ran one | The test now uses a throwaway month (`2099-07`) with a cleanup fixture |
+| Two tests asserted on a renamed variable | They failed on a refactor that changed a name, not a behaviour | They now assert the behaviour with a regex |
+
+**Verified against the throwaway period `2098-11`:**
+
+```
+resolve_reporting_period   success   -> resolved 2098-11, not 2026-11
+sync_erp_snapshot          success   -> 500 PO rows imported
+freeze_expected_population up_for_retry -> the population guard fired
+```
+
+The `FREEZE` failure is the **idempotency guard working as designed**:
+`2098-11` was already frozen with 87 rows by the earlier dry run, and
+the ERP now returns 500, so the freeze correctly refuses to replace a
+frozen population. The live period `2026-11` was never written to
+(476 rows, unchanged).
+
+Test suite: 232 → **261 passed**.
+
 ---
 
 ## 6.1 Repository
@@ -509,8 +565,8 @@ sidebar collapses into a drawer under 900px. Both periods were checked:
 | Remote | `https://github.com/COCO-WaterBird/AccrualFlow` |
 | Visibility | Public |
 | Branch | `main` |
-| Commit | `fe4118d` — "the dashboard redesign" |
-| Files | 88 |
+| Commit | `c9ec5a6` — "the monthly cycle, the progress ledger and the default reporting period" |
+| Files | 94 |
 
 **Secrets are excluded.** The OAuth client secret, the OAuth token, the
 `.env` file and the whole `backend/config/` folder are in `.gitignore` and
@@ -547,3 +603,7 @@ identical to the local commit, and the credential backup folder is absent.
 | 2026-11-17 | **Pushed to GitHub** — commit `fe0beea` on `main`. |
 | 2026-11-17 | **The dashboard was redesigned to the enterprise North American standard** (Ramp / Stripe / Linear, shadcn/ui tokens): left sidebar with badge counters, compact KPI cards, review queues, semantic status badges in American English, tabular figures, responsive drawer. The stack is unchanged — one self contained HTML file, no React, no Node, no CDN. The standing project rules were written to `.cursor/rules/project-rules.md`. Verified in the browser: no JavaScript errors on any of the six pages, period switching reloads every panel. Test suite: **232 passed**. |
 | 2026-11-17 | **Pushed to GitHub** — commit `fe4118d` on `main`. |
+| 2026-11-18 | **The dashboard opened on the wrong period.** The owner asked what `2098-11 Period` meant — it is a `Dry Run` test period, and because it sorts first (2098 > 2026) the page opened on it. Fixed: `default_month()` picks the live period, and a dry run period is now marked with a warning banner and a `(test)` label so it can never be mistaken for a real result. |
+| 2026-11-18 | **The monthly collection cycle and the progress ledger** were added: the owner starts one run per reporting month from the dashboard, and every stage is recorded the moment it finishes, with its error message when it fails. |
+| 2026-11-18 | **Four bugs found and fixed**: the legal entity was dropped between DAG tasks (`KeyError`); the reporting month was read from the wrong place in the Airflow context (a run for `2098-11` collected `2026-11`); a test wrote its stage rows into the live month and made the dashboard report a false failure; and two tests asserted on a renamed variable. Verified against the throwaway period — the live period `2026-11` was never written to. Test suite: 232 → **261 passed**. |
+| 2026-11-18 | **Pushed to GitHub** — commit `c9ec5a6` on `main`. |
