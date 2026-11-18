@@ -16,6 +16,11 @@ from datetime import date
 from backend.app.services.submission_persistence_service import connect
 
 
+# The population source of a period that was produced by a dry run
+# rather than by the ERP.  A dry run period holds synthetic data.
+DRY_RUN_SOURCE = "Dry Run"
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -102,12 +107,14 @@ def default_month() -> str | None:
     """The reporting month the dashboard opens on.
 
     The live period is the month the business is actually reporting on.
-    A test period carries the source ``Dry Run`` and must never be the
-    default, even though a test period in a far future year sorts first
-    and would otherwise win the ordering.
+    A test period must never be the default, even though a test period
+    in a far future year sorts first and would otherwise win the
+    ordering.
 
-    The live period is the newest frozen period whose year is not in the
-    future.  When every period is a test period, the newest one is used.
+    A period is a test period when it was produced by a dry run, or when
+    it sits in a future year.  The live period is the newest frozen
+    period that is neither.  When every period is a test period, the
+    newest one is used, because it is the best available.
     """
     today = date.today()
 
@@ -134,7 +141,7 @@ def default_month() -> str | None:
 
     # A real period: not a dry run, and not in a future year.
     for month, source in periods:
-        if source == "Dry Run":
+        if source == DRY_RUN_SOURCE:
             continue
         if month.year > today.year:
             continue
@@ -145,10 +152,15 @@ def default_month() -> str | None:
 
 
 def is_test_period(reporting_month: str) -> bool:
-    """True when the period was produced by a dry run, not by the ERP.
+    """True when the period is synthetic, not a real reporting month.
 
-    A dry run period is synthetic data.  It must be visibly marked in the
-    dashboard so that nobody mistakes it for a real reporting month.
+    A period is synthetic when it was produced by a dry run, or when it
+    sits in a future year.  A future year cannot be a real reporting
+    month, because the business does not report on a month that has not
+    happened yet.
+
+    A synthetic period must be visibly marked in the dashboard so that
+    nobody mistakes it for a real reporting result.
     """
     month = _month_start(reporting_month)
 
@@ -161,10 +173,14 @@ def is_test_period(reporting_month: str) -> bool:
         (month,),
     )
 
+    # A month in a future year cannot be a real reporting month.
+    if date.fromisoformat(month).year > date.today().year:
+        return True
+
     if not rows:
         return False
 
-    return (rows[0]["population_source"] or "").strip() == "Dry Run"
+    return (rows[0]["population_source"] or "").strip() == DRY_RUN_SOURCE
 
 
 # ---------------------------------------------------------------------------

@@ -95,6 +95,24 @@ def test_an_unknown_month_is_not_a_test_period():
     assert dash.is_test_period("1999-01") is False
 
 
+def test_a_month_in_a_future_year_is_a_test_period():
+    """The business cannot report on a month that has not happened yet.
+
+    The rule does not depend on the population source, because a
+    throwaway period may have been frozen from the ERP by hand.
+    """
+    assert dash.is_test_period("2099-12") is True
+
+
+def test_a_month_in_the_past_is_not_a_test_period():
+    assert dash.is_test_period("1999-01") is False
+
+
+def test_the_dry_run_source_is_the_documented_marker():
+    """The constant and the check must not drift apart."""
+    assert dash.DRY_RUN_SOURCE == "Dry Run"
+
+
 # ---------------------------------------------------------------------------
 # The month validation
 # ---------------------------------------------------------------------------
