@@ -466,7 +466,7 @@ the department that was excluded, and the `last_active_month` marked
 | Remote | `https://github.com/COCO-WaterBird/AccrualFlow` |
 | Visibility | Public |
 | Branch | `main` |
-| Commit | `2b2f3dd` — "let the CLI actually re-authorise, and run the DAG end to end" |
+| Commit | `fe0beea` — "the web dashboard" |
 | Files | 87 |
 
 **Secrets are excluded.** The OAuth client secret, the OAuth token, the
@@ -501,3 +501,4 @@ identical to the local commit, and the credential backup folder is absent.
 | 2026-11-17 | **The full DAG ran end to end, all 10 tasks green.** `RECONCILE: expected=87 | accepted=76 | export=87 | reconciled=True | collection_complete=True | data_ready=True`. Run against the throwaway period `2098-11`, so the live `2026-11` period was never written to. Nothing was sent: `ACCRUALFLOW_DRY_RUN=true`, the collection request is `DRY_RUN` with `sent_at = NULL`. `scripts/run_dag_test.sh` runs the same test. |
 | 2026-11-17 | **Pushed to GitHub** — commit `2b2f3dd` on `main`. |
 | 2026-11-17 | **The web dashboard was built.** The owner asked where to see the dashboard; Power BI is Microsoft's software and is not in the repository (no `.pbix` file existed, and the browser Power BI needs the on-premises data gateway plus a Pro licence to reach a local database). The project now ships its own dashboard on the same nine reporting views, so it can never disagree with the official report. A bug was found and fixed: the page hung on "正在加载…" because the month list response shape was not handled. Verified in the browser, all six tabs, both periods. Test suite: 206 → **232 passed**. |
+| 2026-11-17 | **Pushed to GitHub** — commit `fe0beea` on `main`. |
