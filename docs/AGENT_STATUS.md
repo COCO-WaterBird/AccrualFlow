@@ -163,6 +163,24 @@ None. All background shells have finished.
 - **Important:** no email was sent. `ACCRUALFLOW_DRY_RUN=true` is in
   force, and the six collection requests are recorded as `DRY_RUN`.
 
+**The failure is now legible.** The service raises
+`GmailAuthorizationError`, which names the remedy, and the DAG prints it
+before failing the task. The token state is readable without a
+traceback:
+
+```
+$ python3 -m backend.app.services.gmail_auth_service
+Token state: Gmail token granted at 2026-11-10T05:49:14+00:00. The 7 day
+testing-mode window ends at 2026-11-17T05:49:14+00:00 (0.0 h left).
+```
+
+The 7 day window is a Google rule for an OAuth app in **"Testing"**
+publishing status, not a bug. It is the most common cause of a token
+that "worked last week and is revoked today", so the consent time is now
+recorded in the token file and the module warns a day before the window
+closes.
+
+
 ### 4.2 Not a blocker, but noted
 
 The ERP snapshot holds `Open` (476), `On Hold` (21) and `Closed` (3). The
@@ -176,14 +194,15 @@ mid-month closure rule is implemented but dormant until the ERP has a
 ## 5. Tests and evidence
 
 ```
-$ python3 -m pytest -q
-184 passed in 49.61s
+$ .venv/bin/python -m pytest -q
+205 passed in 8.87s
 ```
 
 | Suite | Result |
 |---|---|
-| Whole suite (184 tests) | **184 passed** |
-| `tests/test_population_status_scope.py` | 14 passed (new) |
+| Whole suite (205 tests) | **205 passed** |
+| `tests/test_gmail_auth.py` | 21 passed (new) |
+| `tests/test_population_status_scope.py` | 14 passed |
 | `tests/test_freeze_population.py` | 14 passed |
 | `tests/test_population_exclusions.py` | 4 passed |
 | `tests/test_deterministic_xlsx.py` | 8 passed |
@@ -192,6 +211,13 @@ $ python3 -m pytest -q
 | `tests/test_powerbi_views.py` | 7 passed |
 | Previously flaky export test, 10 consecutive runs | 10/10 passed |
 | Export determinism stress, 15 exports across second boundaries | 1 unique hash |
+
+> **Run the tests with `.venv/bin/python`, not the system `python3`.** The
+> two environments were disjoint: the venv had `google-auth` but no
+> `pytest`, the system interpreter had `pytest` but no `google-auth`. A
+> run with the system interpreter therefore skipped every database test
+> and failed every Gmail test. `pytest` is now installed in the venv, and
+> it holds every dependency.
 
 **Database state, verified after the re-freeze:**
 
@@ -216,13 +242,13 @@ CapEx_Completion_Master_2026-11.xlsx | expected=476 | departments=6 | SUCCESS
 Master_Data: 476 rows, PO Status = Open (476), Line Lifecycle = ACTIVE (476)
 
 Department_Summary:
-  Manufacturing Engineering | NOT_SUBMITTED | INCLUDED
-  Production Automation     | NOT_SUBMITTED | INCLUDED
-  Tooling Engineering       | NOT_SUBMITTED | INCLUDED
-  Facilities Engineering    | NOT_SUBMITTED | INCLUDED
-  Quality Engineering       | NOT_SUBMITTED | INCLUDED
-  IT Infrastructure         | NOT_SUBMITTED | INCLUDED
-  Procurement               | EXCLUDED_FROM_POPULATION | EXCLUDED | NO_PO_LINES | 0
+  2000-100 Manufacturing Engineering | INCLUDED | 148
+  2000-110 Production Automation     | INCLUDED |  91
+  2000-120 Tooling Engineering       | INCLUDED |  63
+  2000-130 Facilities Engineering    | INCLUDED |  51
+  2000-140 Quality Engineering       | INCLUDED |  57
+  2000-150 IT Infrastructure         | INCLUDED |  66
+  2000-900 Procurement               | EXCLUDED |    0 | NO_PO_LINES
 ```
 
 ---
@@ -328,8 +354,8 @@ recreates the view. No report reads from it during the swap.
 | Remote | `https://github.com/COCO-WaterBird/AccrualFlow` |
 | Visibility | Public |
 | Branch | `main` |
-| Commit | `bae6389` — "docs: record the D-1 push in the agent status" |
-| Files | 86 |
+| Commit | `972f7fb` — "distinguish a revoked Gmail token, and cut the dead weight" |
+| Files | 87 |
 
 **Secrets are excluded.** The OAuth client secret, the OAuth token, the
 `.env` file and the whole `backend/config/` folder are in `.gitignore` and
@@ -355,3 +381,7 @@ identical to the local commit, and the credential backup folder is absent.
 | 2026-11-17 | The mid-month closure rule implemented: a line that closes during a reporting month is marked "已关闭" and retained in its last active month, then moves to the ledger the following month. Dormant until the ERP has a second import. |
 | 2026-11-17 | `Master_Data` gained the `PO Status` and `Line Lifecycle` columns. Test suite: 170 → **184 passed**. |
 | 2026-11-17 | **Pushed to GitHub** — commit `1f3d3b3` on `main`. |
+| 2026-11-17 | The revoked Gmail token is now reported as `GmailAuthorizationError` with the remedy, and the 7 day testing-mode expiry is predicted from the recorded consent time. |
+| 2026-11-17 | **Dead weight removed.** The lazy-import machinery in the Gmail service, the extra consent environment variable and exception class, the duplicate classification pass in the status scope, the two test-only wrappers, and the two always-constant ledger columns. Test suite: 184 → **205 passed**. |
+| 2026-11-17 | `pytest` installed in the venv. The two Python environments were disjoint, so runs with the system interpreter skipped every database test and failed every Gmail test. |
+| 2026-11-17 | **Pushed to GitHub** — commit `972f7fb` on `main`. |
