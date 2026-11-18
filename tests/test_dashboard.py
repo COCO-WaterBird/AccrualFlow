@@ -54,6 +54,48 @@ def test_every_month_in_the_list_is_a_valid_month():
 
 
 # ---------------------------------------------------------------------------
+# The default period
+# ---------------------------------------------------------------------------
+
+
+def test_the_default_period_is_the_live_period_not_the_test_period():
+    """A test period must never be what the dashboard opens on.
+
+    The test period sits in a far future year, so it sorts first in the
+    month list.  Opening on the first entry would show synthetic data
+    as if it were a real reporting result.
+    """
+    default = dash.default_month()
+
+    assert default is not None
+    assert default in dash.available_months()
+    assert not dash.is_test_period(default), (
+        "the dashboard must not open on a dry run period"
+    )
+
+
+def test_the_default_period_is_not_in_the_future():
+    from datetime import date
+
+    default = dash.default_month()
+
+    assert int(default[:4]) <= date.today().year
+
+
+def test_the_live_month_is_recognised_as_a_real_period():
+    assert dash.is_test_period(LIVE_MONTH) is False
+
+
+def test_the_demo_month_is_recognised_as_a_test_period():
+    assert dash.is_test_period(DEMO_MONTH) is True
+
+
+def test_an_unknown_month_is_not_a_test_period():
+    """A month with no row at all is not a dry run period."""
+    assert dash.is_test_period("1999-01") is False
+
+
+# ---------------------------------------------------------------------------
 # The month validation
 # ---------------------------------------------------------------------------
 

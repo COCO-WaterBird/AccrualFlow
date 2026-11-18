@@ -349,6 +349,131 @@
     font-size: 13px; font-weight: 600; color: var(--ink-secondary); margin-bottom: 3px;
   }
   .empty .esub { font-size: 12px; }
+
+  /* ---- The banner that marks a synthetic (dry run) period ---- */
+  .notice {
+    display: flex; align-items: flex-start; gap: 9px;
+    margin-bottom: 14px; padding: 9px 12px;
+    background: var(--warning-soft); color: var(--warning);
+    border: 1px solid #f0dcb4; border-radius: var(--radius-sm);
+    font-size: 12.5px; line-height: 1.45;
+  }
+  .notice svg { flex: 0 0 15px; width: 15px; height: 15px; margin-top: 1px; }
+  .notice strong { font-weight: 650; }
+
+  /* ===================================================================
+     The monthly cycle — the progress stepper
+     =================================================================== */
+  .steps { display: flex; flex-direction: column; gap: 0; }
+
+  .step {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .step:last-child { border-bottom: 0; }
+
+  /* The marker: a filled dot when the stage is done, a ring when it is
+     not, a spinner when it is running. */
+  .step-marker {
+    flex: 0 0 22px; width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    border: 1.5px solid var(--border-strong); background: var(--surface);
+    color: var(--ink-muted); margin-top: 1px;
+  }
+  .step-marker svg { width: 12px; height: 12px; }
+  .step.done .step-marker {
+    background: var(--success); border-color: var(--success); color: #fff;
+  }
+  .step.running .step-marker {
+    border-color: var(--accent); border-right-color: transparent;
+    animation: spin .8s linear infinite;
+  }
+  .step.failed .step-marker {
+    background: var(--destructive); border-color: var(--destructive); color: #fff;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .step.running .step-marker { animation: none; }
+  }
+
+  .step-body { flex: 1; min-width: 0; }
+  .step-title {
+    display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+    font-size: 13px; font-weight: 600; color: var(--ink);
+  }
+  .step.pending .step-title { color: var(--ink-muted); font-weight: 500; }
+  .step-note {
+    font-size: 11.5px; color: var(--ink-muted); margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+  .step-error {
+    font-size: 11.5px; color: var(--destructive); margin-top: 3px;
+    word-break: break-word;
+  }
+  .step-badge {
+    font-size: 10px; font-weight: 650; text-transform: uppercase;
+    letter-spacing: .4px; color: var(--ink-muted);
+  }
+
+  /* ---- The trigger bar ---- */
+  .trigger-bar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 12px 14px; background: var(--surface-sunken);
+    border: 1px solid var(--border); border-radius: var(--radius);
+  }
+  .trigger-bar .tinfo { flex: 1; min-width: 190px; }
+  .trigger-bar .tlabel { font-size: 12.5px; font-weight: 600; }
+  .trigger-bar .thint { font-size: 11.5px; color: var(--ink-muted); margin-top: 1px; }
+  .trigger-bar input.month-input {
+    width: 108px; padding: 6px 9px; font-size: 13px;
+    font-family: inherit; color: var(--ink);
+    border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+    background: var(--surface); font-variant-numeric: tabular-nums;
+  }
+  .trigger-bar input.month-input:focus {
+    outline: 2px solid var(--accent); outline-offset: -1px;
+    border-color: var(--accent);
+  }
+  .btn {
+    padding: 7px 14px; font-size: 12.5px; font-weight: 600;
+    font-family: inherit; cursor: pointer;
+    border: 1px solid var(--accent); border-radius: var(--radius-sm);
+    background: var(--accent); color: #fff;
+    transition: background .1s;
+  }
+  .btn:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn.ghost {
+    background: var(--surface); color: var(--ink-secondary);
+    border-color: var(--border-strong);
+  }
+  .btn.ghost:hover:not(:disabled) { background: var(--surface-hover); }
+
+  .trigger-msg {
+    flex-basis: 100%; font-size: 12px; margin-top: 2px;
+  }
+  .trigger-msg.ok { color: var(--success); }
+  .trigger-msg.err { color: var(--destructive); }
+
+  /* ---- The evidence tiles ---- */
+  .evgrid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+    gap: 10px;
+  }
+  .evtile {
+    padding: 11px 12px; background: var(--surface-sunken);
+    border: 1px solid var(--border); border-radius: var(--radius);
+  }
+  .evtile .evlabel {
+    font-size: 10.5px; font-weight: 650; text-transform: uppercase;
+    letter-spacing: .5px; color: var(--ink-muted);
+  }
+  .evtile .evvalue {
+    font-size: 21px; font-weight: 650; margin-top: 3px;
+    font-variant-numeric: tabular-nums; letter-spacing: -.4px;
+  }
+  .evtile .evfoot { font-size: 11px; color: var(--ink-muted); margin-top: 1px; }
   .skeleton {
     height: 10px; border-radius: 4px;
     background: linear-gradient(90deg,#eef0f3 25%,#e4e7ea 37%,#eef0f3 63%);
@@ -466,6 +591,8 @@
 
 const NAV = [
   { group: "Reporting", items: [
+    { id: "cycle",       label: "Monthly Cycle",     icon: "cycle",
+      crumb: "Where the collection cycle stands" },
     { id: "overview",    label: "Overview",          icon: "grid",
       crumb: "Reporting overview" },
     { id: "trends",      label: "Trends",            icon: "trend",
@@ -490,11 +617,25 @@ const ICONS = {
   history:'<circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 4.5V8l2.4 1.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/>',
   scope:  '<path d="M8 1.6A6.4 6.4 0 1 0 8 14.4 6.4 6.4 0 0 0 8 1.6z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 4.5v3.8M8 8.3v3.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
   filter: '<path d="M2 3h12l-4.6 5.4V14L6.6 12.5V8.4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>',
+  cycle:  '<path d="M13.5 8a5.5 5.5 0 1 1-1.7-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M12.4 1.4v2.9H9.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>',
 };
 
+const CHECK_ICON =
+  '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+  '<path d="M3.5 8.4 6.4 11.3l6-6" stroke="currentColor" stroke-width="2" ' +
+  'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+const X_ICON =
+  '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+  '<path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke="currentColor" ' +
+  'stroke-width="2" stroke-linecap="round"/></svg>';
+
 let MONTH = null;
-let CURRENT = "overview";
+/* The cycle page is the entry point: it shows where the month stands
+   and it is where the cycle is started. */
+let CURRENT = "cycle";
 let CACHE = {};
+let TEST_PERIODS = [];
 
 /* ---------------------------------------------------------------------
    Formatting helpers
@@ -703,7 +844,8 @@ async function api(path) {
 async function loadMonth(month) {
   const q = `?reporting_month=${encodeURIComponent(month)}`;
   const [overview, exceptions, audit, trends, series, scope,
-         exclusions, statusScope, closedLines, fresh] = await Promise.all([
+         exclusions, statusScope, closedLines, fresh,
+         progress, evidence] = await Promise.all([
     api(`/api/v1/dashboard/department_overview${q}`),
     api(`/api/v1/dashboard/validation_exceptions${q}`),
     api(`/api/v1/dashboard/submission_audit${q}`),
@@ -714,9 +856,280 @@ async function loadMonth(month) {
     api(`/api/v1/dashboard/population_status_exclusions${q}`),
     api(`/api/v1/dashboard/population_closed_lines${q}`),
     api(`/api/v1/dashboard/freshness${q}`),
+    api(`/api/v1/cycle/progress${q}`),
+    api(`/api/v1/cycle/evidence${q}`),
   ]);
   return {overview, exceptions, audit, trends, series, scope,
-          exclusions, statusScope, closedLines, fresh};
+          exclusions, statusScope, closedLines, fresh,
+          progress, evidence};
+}
+
+/* ---------------------------------------------------------------------
+   Page: Monthly Cycle — where the collection stands, and the trigger
+   --------------------------------------------------------------------- */
+
+/* The state of the Airflow runs.  It is fetched separately from the
+   month data, because it is not bound to a month: it says what is
+   running right now. */
+let RUNS = {runs: [], active_run: null, suggested_month: null};
+
+async function loadRuns() {
+  try {
+    RUNS = await api("/api/v1/cycle/runs");
+  } catch (e) {
+    RUNS = {runs: [], active_run: null, suggested_month: null,
+             error: e.message};
+  }
+  return RUNS;
+}
+
+/** The stage detail of one step, as a short sentence. */
+function stageNote(stage) {
+  const d = stage.detail || {};
+
+  switch (stage.stage) {
+    case "ERP_IMPORT":
+      return d.row_count
+        ? `${num(d.row_count)} PO lines from the ERP`
+        : "";
+    case "FREEZE":
+      return d.frozen_line_count
+        ? `${num(d.frozen_line_count)} lines frozen · ` +
+          `${num(d.excluded_department_count)} departments excluded`
+        : "";
+    case "DISPATCH":
+      return d.request_count
+        ? `${num(d.request_count)} requests` +
+          (d.sent_count ? ` · ${num(d.sent_count)} sent`
+                        : ` · ${num(d.prepared_count || 0)} prepared (dry run)`)
+        : "";
+    case "DISCOVER":
+      return d.reply_count !== undefined
+        ? `${num(d.reply_count)} replies found`
+        : "";
+    case "PARSE":
+      return d.processed_count !== undefined
+        ? `${num(d.processed_count)} processed` +
+          (d.failed_count ? ` · ${num(d.failed_count)} failed` : "")
+        : "";
+    case "CORRECTION":
+      return d.correction_count !== undefined
+        ? `${num(d.correction_count)} departments` +
+          (d.prepared_count ? ` · ${num(d.prepared_count)} prepared` : "")
+        : "";
+    case "MASTER_EXCEL":
+      return d.file_name ? esc(d.file_name) : "";
+    case "DATA_READY":
+      return d.accepted_rows !== undefined
+        ? `${num(d.accepted_rows)} of ${num(d.expected_rows)} lines accepted`
+        : "";
+    default:
+      return "";
+  }
+}
+
+const STEP_STATE = {
+  SUCCESS:   {cls: "done",    label: "Done"},
+  RUNNING:   {cls: "running", label: "Running"},
+  FAILED:    {cls: "failed",  label: "Failed"},
+  SKIPPED:   {cls: "pending", label: "Skipped"},
+  NOT_STARTED:{cls: "pending", label: "Not started"},
+};
+
+function renderCycle(d) {
+  const p = d.progress || {};
+  const stages = p.stages || [];
+  const ev = d.evidence || {};
+  const email = ev.email || {};
+
+  /* ---- The trigger bar ---- */
+  const active = RUNS.active_run;
+  const busy = !!(active && (active.state === "queued" || active.state === "running"));
+
+  const trigger = `<div class="trigger-bar">
+    <div class="tinfo">
+      <div class="tlabel">${busy ? "A cycle is running" : "Start the monthly cycle"}</div>
+      <div class="thint">${
+        busy
+          ? `Run <span class="mono">${esc(active.dag_run_id || "")}</span> is in flight for ${esc(active.conf?.reporting_month || MONTH)}.`
+          : (RUNS.error
+              ? `The Airflow API is unreachable: ${esc(RUNS.error)}. The cycle cannot be started from here.`
+              : "The cycle downloads the ERP data, freezes the population, " +
+                "asks every department to report, collects the replies and " +
+                "publishes the Master Excel. Nothing runs on its own.")
+      }</div>
+    </div>
+    <input class="month-input" id="trigger-month" type="text"
+           value="${esc(RUNS.suggested_month || MONTH || "")}"
+           placeholder="YYYY-MM" aria-label="Reporting month">
+    <button class="btn" id="trigger-btn" ${busy || RUNS.error ? "disabled" : ""}>Start cycle</button>
+    <button class="btn ghost" id="cycle-reload">Refresh</button>
+    <div class="trigger-msg" id="trigger-msg"></div>
+  </div>`;
+
+  /* ---- The stepper ---- */
+  const steps = stages.map(s => {
+    const st = STEP_STATE[s.status] || STEP_STATE.NOT_STARTED;
+    const note = stageNote(s);
+    const when = s.finished_at ? dt(s.finished_at) : (s.started_at ? dt(s.started_at) : "");
+
+    const marker = s.status === "SUCCESS" ? CHECK_ICON
+                 : s.status === "FAILED" ? X_ICON
+                 : "";
+
+    return `<div class="step ${st.cls}">
+      <div class="step-marker">${marker}</div>
+      <div class="step-body">
+        <div class="step-title">
+          <span>${esc(s.label)}</span>
+          <span class="step-badge">${esc(st.label)}</span>
+        </div>
+        ${note ? `<div class="step-note">${note}</div>` : ""}
+        ${s.error_message ? `<div class="step-error">${esc(s.error_message)}</div>` : ""}
+      </div>
+      ${when ? `<div class="step-note">${esc(when)}</div>` : ""}
+    </div>`;
+  }).join("");
+
+  const stepper = `<div class="steps">${steps}</div>`;
+
+  /* ---- The evidence tiles ---- */
+  const imports = ev.erp_imports || [];
+  const lastImport = imports[0];
+  const exports = ev.master_exports || [];
+  const lastExport = exports[0];
+
+  const tiles = `<div class="evgrid">
+    <div class="evtile">
+      <div class="evlabel">ERP rows imported</div>
+      <div class="evvalue">${num(lastImport ? (lastImport.imported_rows || 0) : 0)}</div>
+      <div class="evfoot">${
+        lastImport
+          ? (lastImport.completed_at ? dt(lastImport.completed_at) : "in progress")
+          : "not imported yet"
+      }</div>
+    </div>
+    <div class="evtile">
+      <div class="evlabel">Requests sent</div>
+      <div class="evvalue">${num(email.sent_count || 0)}</div>
+      <div class="evfoot">of ${num(email.request_count || 0)} prepared</div>
+    </div>
+    <div class="evtile">
+      <div class="evlabel">Replies received</div>
+      <div class="evvalue">${num(email.reply_count || 0)}</div>
+      <div class="evfoot">${num(email.submission_count || 0)} submissions stored</div>
+    </div>
+    <div class="evtile">
+      <div class="evlabel">Corrections prepared</div>
+      <div class="evvalue">${num(email.correction_count || 0)}</div>
+      <div class="evfoot">${
+        email.correction_count
+          ? "workbooks on disk"
+          : "nothing outstanding"
+      }</div>
+    </div>
+    <div class="evtile">
+      <div class="evlabel">Master Excel</div>
+      <div class="evvalue" style="font-size:15px">${
+        lastExport ? esc(lastExport.file_name) : "—"
+      }</div>
+      <div class="evfoot">${
+        lastExport
+          ? `${num(lastExport.accepted_line_count || 0)} accepted · ` +
+            `${num(lastExport.exception_count || 0)} exceptions`
+          : "not published yet"
+      }</div>
+    </div>
+  </div>`;
+
+  const summary = p.overall_status === "COMPLETE"
+    ? `The cycle for <b>${esc(MONTH)}</b> is complete. ` +
+      `All ${p.total_stage_count} stages succeeded.`
+    : p.overall_status === "FAILED"
+      ? `The cycle for <b>${esc(MONTH)}</b> has a failed stage. ` +
+        `Fix it and start the cycle again — the steps are idempotent.`
+      : p.overall_status === "RUNNING"
+        ? `The cycle for <b>${esc(MONTH)}</b> is running. ` +
+          `Currently at: ${esc(p.current_stage_label || "—")}.`
+        : p.overall_status === "IN_PROGRESS"
+          ? `The cycle for <b>${esc(MONTH)}</b> is part way through. ` +
+            `Currently at: ${esc(p.current_stage_label || "—")}.`
+          : `The cycle for <b>${esc(MONTH)}</b> has not been started yet. ` +
+            `Start it below.`;
+
+  return trigger +
+    panel("Cycle progress",
+      "Each stage is recorded the moment it finishes",
+      stepper,
+      summary,
+      p.overall_status === "FAILED" ? "warn" : "info") +
+    panel("Evidence",
+      "What the pipeline actually wrote for this month",
+      tiles);
+}
+
+/** Wire the trigger button and the refresh button of the cycle page. */
+function bindCycleActions(d) {
+  const btn = document.getElementById("trigger-btn");
+  const msg = document.getElementById("trigger-msg");
+  const input = document.getElementById("trigger-month");
+
+  const reload = document.getElementById("cycle-reload");
+  if (reload) {
+    reload.onclick = async () => {
+      reload.disabled = true;
+      await loadRuns();
+      delete CACHE[MONTH];
+      await render();
+    };
+  }
+
+  if (!btn) return;
+
+  btn.onclick = async () => {
+    const month = (input.value || "").trim();
+
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      msg.className = "trigger-msg err";
+      msg.textContent = "The reporting month must be in YYYY-MM format.";
+      return;
+    }
+
+    btn.disabled = true;
+    msg.className = "trigger-msg";
+    msg.textContent = `Starting the cycle for ${month}…`;
+
+    try {
+      const r = await fetch(
+        `/api/v1/cycle/trigger?reporting_month=${encodeURIComponent(month)}`,
+        {method: "POST"}
+      );
+      const body = await r.json();
+
+      if (!r.ok) {
+        msg.className = "trigger-msg err";
+        msg.textContent = body.detail || `The cycle could not be started (${r.status}).`;
+        btn.disabled = false;
+        return;
+      }
+
+      msg.className = "trigger-msg ok";
+      msg.textContent =
+        `Started run ${body.dag_run_id}. The progress below follows it.`;
+
+      /* Follow the run.  The stage rows are written by the DAG itself,
+         so a reload shows where it got to. */
+      await loadRuns();
+      await new Promise(r2 => setTimeout(r2, 2500));
+      delete CACHE[MONTH];
+      await render();
+
+    } catch (e) {
+      msg.className = "trigger-msg err";
+      msg.textContent = `The cycle could not be started: ${e.message}`;
+      btn.disabled = false;
+    }
+  };
 }
 
 /* ---------------------------------------------------------------------
@@ -1144,6 +1557,7 @@ async function render() {
     const d = CACHE[MONTH];
 
     let html = "";
+    if (CURRENT === "cycle")          html = renderCycle(d);
     if (CURRENT === "overview")       html = renderOverview(d);
     if (CURRENT === "exceptions")     html = renderExceptions(d);
     if (CURRENT === "audit")          html = renderAudit(d);
@@ -1152,6 +1566,25 @@ async function render() {
     if (CURRENT === "status_scope")   html = renderStatusScope(d);
 
     content.innerHTML = html;
+
+    if (CURRENT === "cycle") bindCycleActions(d);
+
+    /* A synthetic period must never be mistaken for a real one. */
+    const banner = TEST_PERIODS.includes(MONTH)
+      ? `<div class="notice">
+           <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+             <path d="M8 2.2 14.4 13.2H1.6L8 2.2Z" stroke="currentColor"
+                   stroke-width="1.3" stroke-linejoin="round"/>
+             <path d="M8 6.4v3.1" stroke="currentColor" stroke-width="1.3"
+                   stroke-linecap="round"/>
+             <circle cx="8" cy="11.5" r=".8" fill="currentColor"/>
+           </svg>
+           <div><strong>Test period.</strong> ${esc(MONTH)} was produced by a dry run,
+             not by the ERP. The figures below are synthetic and are not a real
+             reporting result.</div>
+         </div>`
+      : "";
+    if (banner) content.insertAdjacentHTML("afterbegin", banner);
 
     /* Nav counts: exceptions and excluded departments are actionable. */
     const counts = {
@@ -1179,11 +1612,15 @@ async function render() {
 async function init() {
   const resp = await api("/api/v1/dashboard/months");
   const months = Array.isArray(resp) ? resp : (resp.months || []);
+  const fallback = (resp && resp.default) || null;
+  const testPeriods = (resp && resp.test_periods) || [];
+  TEST_PERIODS = testPeriods;
   const sel = document.getElementById("month");
   sel.innerHTML = "";
   months.forEach(m => {
     const o = document.createElement("option");
-    o.value = m; o.textContent = m;
+    o.value = m;
+    o.textContent = testPeriods.includes(m) ? `${m} (test)` : m;
     sel.appendChild(o);
   });
 
@@ -1196,12 +1633,18 @@ async function init() {
     return;
   }
 
-  MONTH = months[0];
+  /* Open on the live period.  A test period sorts first because its year
+     is in the future, so the list order alone is not a safe default. */
+  MONTH = (fallback && months.includes(fallback)) ? fallback : months[0];
   sel.value = MONTH;
   sel.onchange = () => { MONTH = sel.value; render(); };
   document.getElementById("reload").onclick = () => { delete CACHE[MONTH]; render(); };
   document.getElementById("nav-toggle").onclick = () =>
     document.body.classList.toggle("nav-open");
+
+  /* The state of the Airflow runs.  The cycle page needs it, and it
+     is not bound to a month, so it is fetched once here. */
+  await loadRuns();
 
   await render();
 }

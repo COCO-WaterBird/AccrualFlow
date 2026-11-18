@@ -11,6 +11,12 @@ from psycopg import sql
 from dotenv import load_dotenv
 
 from backend.app.services.mock_erp_client import MockERPClient
+from backend.app.core.config import (
+    ACCRUALFLOW_DB_NAME,
+    DB_HOST,
+    DB_PORT,
+    DB_USER,
+)
 
 
 load_dotenv()
@@ -156,6 +162,17 @@ def calculate_data_hash(records):
 
 
 def sync_purchase_orders(reporting_month):
+    """Pull the ERP master data into the AccrualFlow database.
+
+    The import is recorded in ``import_batch`` so that the dashboard can
+    show when the data was last pulled and how many rows it contained.
+
+    The import is idempotent: an identical file that was already
+    imported successfully creates no second batch, and the existing
+    batch is reported back instead.
+
+    Returns a summary dictionary.
+    """
     password = os.getenv("ACCRUALFLOW_DB_PASSWORD")
 
     if not password:
@@ -188,10 +205,10 @@ def sync_purchase_orders(reporting_month):
     print(f"Data SHA-256: {data_hash}")
 
     with psycopg.connect(
-        host="localhost",
-        port=5433,
-        dbname="accrualflow_db",
-        user="accrualflow",
+        host=DB_HOST,
+        port=DB_PORT,
+        dbname=ACCRUALFLOW_DB_NAME,
+        user=DB_USER,
         password=password,
     ) as conn:
 
@@ -206,7 +223,7 @@ def sync_purchase_orders(reporting_month):
             # Detect a previously completed identical batch.
             cur.execute(
                 """
-                SELECT batch_id
+                SELECT batch_id, imported_at, imported_rows
                 FROM import_batch
                 WHERE reporting_month = %s
                   AND source_system = %s
@@ -225,7 +242,19 @@ def sync_purchase_orders(reporting_month):
                     f"{existing[0]}"
                 )
                 print("No duplicate history created.")
-                return
+
+                return {
+                    "reporting_month": reporting_month,
+                    "batch_id": existing[0],
+                    "row_count": existing[2] or len(records),
+                    "data_hash": data_hash,
+                    "imported_at": (
+                        existing[1].isoformat()
+                        if existing[1]
+                        else None
+                    ),
+                    "reused_existing_batch": True,
+                }
 
             # Create a new import batch.
             cur.execute(
@@ -333,6 +362,15 @@ def sync_purchase_orders(reporting_month):
             print(f"Current PO Lines: {actual_count}")
 
     print("AccrualFlow PO Sync completed successfully!")
+
+    return {
+        "reporting_month": reporting_month,
+        "batch_id": batch_id,
+        "row_count": actual_count,
+        "data_hash": data_hash,
+        "imported_at": None,
+        "reused_existing_batch": False,
+    }
 
 
 if __name__ == "__main__":

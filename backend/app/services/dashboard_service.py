@@ -11,6 +11,8 @@ parameterised query and returns plain dictionaries.
 
 from __future__ import annotations
 
+from datetime import date
+
 from backend.app.services.submission_persistence_service import connect
 
 
@@ -94,6 +96,75 @@ def available_months() -> list[str]:
     )
 
     return [row["reporting_month"].strftime("%Y-%m") for row in rows]
+
+
+def default_month() -> str | None:
+    """The reporting month the dashboard opens on.
+
+    The live period is the month the business is actually reporting on.
+    A test period carries the source ``Dry Run`` and must never be the
+    default, even though a test period in a far future year sorts first
+    and would otherwise win the ordering.
+
+    The live period is the newest frozen period whose year is not in the
+    future.  When every period is a test period, the newest one is used.
+    """
+    today = date.today()
+
+    rows = _rows(
+        """
+        SELECT reporting_month, population_source
+        FROM reporting_periods
+        WHERE population_frozen = TRUE
+        ORDER BY reporting_month DESC
+        """,
+        (),
+    )
+
+    periods = [
+        (
+            row["reporting_month"],
+            (row["population_source"] or "").strip(),
+        )
+        for row in rows
+    ]
+
+    if not periods:
+        return None
+
+    # A real period: not a dry run, and not in a future year.
+    for month, source in periods:
+        if source == "Dry Run":
+            continue
+        if month.year > today.year:
+            continue
+        return month.strftime("%Y-%m")
+
+    # Only test periods exist.  The newest one is the best available.
+    return periods[0][0].strftime("%Y-%m")
+
+
+def is_test_period(reporting_month: str) -> bool:
+    """True when the period was produced by a dry run, not by the ERP.
+
+    A dry run period is synthetic data.  It must be visibly marked in the
+    dashboard so that nobody mistakes it for a real reporting month.
+    """
+    month = _month_start(reporting_month)
+
+    rows = _rows(
+        """
+        SELECT population_source
+        FROM reporting_periods
+        WHERE reporting_month = %s
+        """,
+        (month,),
+    )
+
+    if not rows:
+        return False
+
+    return (rows[0]["population_source"] or "").strip() == "Dry Run"
 
 
 # ---------------------------------------------------------------------------

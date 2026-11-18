@@ -17,6 +17,7 @@ expressions of the real DAG that used to fail.
 
 import ast
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -400,7 +401,10 @@ def test_the_dag_passes_the_outcome_to_the_readiness_gate():
     """The gate can only work if the outcome actually reaches it."""
     source = DAG_FILE.read_text(encoding="utf-8")
 
-    assert "mark_data_ready(period, export, outcome)" in source
+    assert re.search(
+        r"mark_data_ready\(\s*\w+\s*,\s*\w+\s*,\s*outcome\s*\)",
+        source,
+    ), "the readiness gate must receive the collection outcome"
 
 
 def test_the_export_depends_on_the_collection_outcome():
@@ -411,7 +415,10 @@ def test_the_export_depends_on_the_collection_outcome():
     """
     source = DAG_FILE.read_text(encoding="utf-8")
 
-    assert "export_master_excel(period, outcome)" in source
+    assert re.search(
+        r"export_master_excel\(\s*\w+\s*,\s*outcome\s*\)",
+        source,
+    ), "the export must receive the collection outcome"
 
 
 def test_the_export_normalises_the_outcome_payload():
@@ -419,3 +426,154 @@ def test_the_export_normalises_the_outcome_payload():
     source = DAG_FILE.read_text(encoding="utf-8")
 
     assert 'as_dict(outcome, "export_master_excel.outcome")' in source
+
+
+# ---------------------------------------------------------------------------
+# The period keys that flow through the task chain
+# ---------------------------------------------------------------------------
+
+def _task_functions() -> dict:
+    """Every task function of the DAG, by name."""
+    tree = ast.parse(DAG_FILE.read_text(encoding="utf-8"))
+
+    return {
+        node.name: node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+    }
+
+
+def _reads_legal_entity(node) -> bool:
+    body = ast.get_source_segment(
+        DAG_FILE.read_text(encoding="utf-8"), node
+    ) or ""
+    return "legal_entity\"]" in body or "legal_entity']" in body
+
+
+def _returns_legal_entity(node) -> bool:
+    for child in ast.walk(node):
+        if isinstance(child, ast.Return) and isinstance(child.value, ast.Dict):
+            keys = [
+                k.value for k in child.value.keys
+                if isinstance(k, ast.Constant)
+            ]
+            if "legal_entity" in keys:
+                return True
+    return False
+
+
+def test_a_task_that_needs_the_legal_entity_passes_it_on():
+    """A key must survive the whole task chain, not just the first task.
+
+    Each task receives the previous task's output as ``period``.  A task
+    that reads ``period["legal_entity"]`` but does not return it breaks
+    every task after it, with a bare ``KeyError``.
+    """
+    functions = _task_functions()
+
+    for name in (
+        "resolve_reporting_period",
+        "sync_erp_snapshot",
+        "freeze_expected_population",
+    ):
+        node = functions[name]
+        assert _returns_legal_entity(node), (
+            f"{name} must return the legal entity, "
+            "or the tasks after it cannot read it"
+        )
+
+
+def test_the_period_carries_the_legal_entity_to_every_task_that_needs_it():
+    """The frozen population is what every later task receives.
+
+    So the frozen population has to carry the legal entity, because the
+    tasks after it read it from there.
+    """
+    functions = _task_functions()
+
+    for name, node in functions.items():
+        if not _reads_legal_entity(node):
+            continue
+        if name in ("accrualflow_daily_monitoring",):
+            continue
+
+        assert _returns_legal_entity(node) or name in (
+            # These take the frozen population as their period, so the
+            # key arrives with it rather than with their own return.
+            "dispatch_collection_requests",
+            "parse_validate_and_persist",
+            "generate_correction_workbooks_and_drafts",
+            "update_department_status",
+            "export_master_excel",
+        ), f"{name} reads the legal entity but it cannot reach it"
+
+
+# ---------------------------------------------------------------------------
+# The reporting month of a manual run
+# ---------------------------------------------------------------------------
+
+def _load_dag_helper(name: str):
+    """Load one module level function out of the DAG file.
+
+    The DAG imports ``airflow.sdk``, which is only installed inside the
+    Airflow image, so the function is compiled on its own instead.
+    """
+    source = DAG_FILE.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            module = ast.Module(
+                body=[node],
+                type_ignores=[],
+            )
+            namespace = {"re": re}
+            exec(compile(module, str(DAG_FILE), "exec"), namespace)
+            return namespace[name]
+
+    raise AssertionError(f"{name} is not a module level function of the DAG")
+
+
+def test_the_run_month_is_read_from_the_flat_params():
+    """Airflow merges the run configuration into the params.
+
+    The month therefore sits at the top level of ``params``, not under a
+    ``conf`` key.  Reading only the nested form would lose the month
+    and the run would collect the wrong period.
+    """
+    helper = _load_dag_helper("_conf_reporting_month")
+
+    assert helper({"reporting_month": "2098-11"}) == "2098-11"
+
+
+def test_the_run_month_is_read_from_the_nested_conf():
+    """The raw run configuration carries the month as well."""
+    helper = _load_dag_helper("_conf_reporting_month")
+
+    assert helper({"conf": {"reporting_month": "2098-11"}}) == "2098-11"
+
+
+def test_a_run_without_a_month_has_none():
+    helper = _load_dag_helper("_conf_reporting_month")
+
+    assert helper({}) is None
+    assert helper(None) is None
+
+
+def test_a_malformed_run_month_is_rejected():
+    """A wrong month must fail loudly, not fall back to today."""
+    helper = _load_dag_helper("_conf_reporting_month")
+
+    with pytest.raises(ValueError):
+        helper({"reporting_month": "2026-13"})
+
+    with pytest.raises(ValueError):
+        helper({"reporting_month": "November"})
+
+
+def test_the_run_month_is_read_from_the_dag_run_configuration():
+    """The task reads the month from the params and from the run conf."""
+    source = DAG_FILE.read_text(encoding="utf-8")
+
+    assert "dag_run" in source
+    assert "_conf_reporting_month" in source

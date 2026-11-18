@@ -1,9 +1,12 @@
 """
-AccrualFlow daily submission monitoring.
+AccrualFlow monthly submission collection.
 
 The DAG implements the deterministic pipeline:
 
-    discover_replies
+    sync_erp_snapshot
+      -> freeze_expected_population
+      -> dispatch_collection_requests
+      -> discover_replies
       -> register_and_deduplicate
       -> archive_raw_emails_and_attachments
       -> parse_validate_and_persist
@@ -14,13 +17,20 @@ The DAG implements the deterministic pipeline:
 
 Design notes
 ------------
+* The DAG is **manually triggered**.  There is no cron schedule.  The
+  owner starts one run per reporting month, from the dashboard or from
+  the Airflow UI, and that single run carries the whole cycle: it pulls
+  the ERP snapshot, freezes the population, asks the departments to
+  report, collects the replies, validates them and publishes the Master
+  Excel.  Nothing runs on its own, so a month can never be processed
+  twice by accident and no run can happen while nobody is watching.
 * Every task is retry safe.  Gmail message ids are the idempotency key, so
   a repeated run never creates a second submission.
 * A single corrupt workbook never blocks the other messages: each message is
   processed inside its own try/except and the failures are collected.
 * Only identifiers and paths travel through XCom, never binary payloads.
-* The schedule uses the business timezone so that the job runs in the
-  Pacific morning rather than in UTC.
+* The reporting month comes from the run itself.  A manual run names the
+  month it is for, so the run and the report can never disagree.
 
 The outbound email path is guarded by ``ACCRUALFLOW_DRY_RUN``.  While that
 switch is on, correction requests are only prepared.
@@ -43,12 +53,122 @@ from airflow.sdk import dag, task
 # The business timezone of the reporting cycle.
 BUSINESS_TIMEZONE = ZoneInfo("America/Los_Angeles")
 
+
+# ---------------------------------------------------------------------------
+# The progress ledger
+#
+# Every task of the run writes its progress into ``cycle_stage_runs``,
+# so that the dashboard can show where the monthly cycle stands.  The
+# ledger is written from inside the task itself rather than from a
+# wrapper, because a wrapper would not know what the task produced.
+# ---------------------------------------------------------------------------
+
+
+def _record_stage(stage: str, reporting_month: str, context: dict):
+    """Return the two helpers that record the progress of a stage.
+
+    The stage is marked as running before the work starts and as
+    finished when it ends.  A failure is recorded as a failure, with
+    the error message, so the dashboard can show what needs attention
+    rather than only that something happened.
+    """
+    from backend.app.services.cycle_progress_service import (
+        finish_stage,
+        start_stage,
+    )
+
+    dag_run = (context or {}).get("run_id")
+
+    start_stage(reporting_month, stage, dag_run_id=dag_run)
+
+    def finish(
+        status: str = "SUCCESS",
+        detail: dict | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        try:
+            finish_stage(
+                reporting_month,
+                stage,
+                status=status,
+                detail=detail,
+                error_message=error_message,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # The progress ledger must never break the pipeline.  A
+            # failure to record the progress is worth a log line, but
+            # it is not worth failing the report for.
+            print(f"PROGRESS LEDGER WRITE FAILED ({stage}): {exc}")
+
+    return finish
+
 # An explicit override of the reporting month, in ``YYYY-MM``.
 #
 # A DAG run writes to the database and publishes files, so a test run
 # must never be pointed at the live reporting month by accident.  Setting
 # this variable pins the run to one specific month.
 REPORTING_MONTH_OVERRIDE_ENV = "ACCRUALFLOW_REPORTING_MONTH"
+
+
+def _conf_reporting_month(params) -> str | None:
+    """Return the reporting month named by the run, if any.
+
+    A manual run names the month it is for.  The name comes from the
+    run configuration (``conf``), because that is what the dashboard
+    sends and what the Airflow UI shows next to the run.
+
+    Airflow puts the run configuration in two places, and the month is
+    read from both.  ``params`` is the merged view of the DAG params, the
+    task params and the run configuration, so the month sits at the top
+    level of it.  The raw run configuration is under ``conf``.  Reading
+    only one of them would silently ignore the month and fall back to
+    the logical date, which would collect the wrong period.
+
+    A malformed name is rejected rather than ignored.  A run that
+    silently falls back to "today" would collect the wrong month and
+    publish it under the wrong name, and the damage would only surface
+    in the reconciliation at the very end.
+    """
+    if not params:
+        return None
+
+    try:
+        conf = params.get("conf") or {}
+    except AttributeError:
+        conf = {}
+
+    if not isinstance(conf, dict):
+        conf = {}
+
+    value = conf.get("reporting_month")
+
+    if value is None:
+        try:
+            value = params.get("reporting_month")
+        except AttributeError:
+            return None
+
+    if value is None:
+        return None
+
+    value = str(value).strip()
+
+    if not value:
+        return None
+
+    if not re.fullmatch(r"\d{4}-\d{2}", value):
+        raise ValueError(
+            f"reporting_month must be in YYYY-MM format, got {value!r}"
+        )
+
+    month = int(value[5:7])
+
+    if not 1 <= month <= 12:
+        raise ValueError(
+            f"reporting_month has an invalid month: {value!r}"
+        )
+
+    return value
 
 
 def _reporting_month(logical_date) -> str:
@@ -91,7 +211,9 @@ def _reporting_month(logical_date) -> str:
 
 @dag(
     dag_id="accrualflow_daily_monitoring",
-    schedule="0 9 * * *",
+    # There is no schedule.  The owner starts one run per reporting
+    # month, and the run carries the whole cycle.
+    schedule=None,
     start_date=datetime(2026, 11, 1),
     catchup=False,
     max_active_runs=1,
@@ -106,17 +228,156 @@ def accrualflow_daily_monitoring():
     # ------------------------------------------------------------------
     @task
     def resolve_reporting_period(**context) -> dict:
-        """Resolve the reporting month and the legal entity of the run."""
+        """Resolve the reporting month and the legal entity of the run.
+
+        The month comes from the run configuration when the run names
+        one, because a manual run is for a month that the owner chose.
+        Only when the run names no month does the logical date decide,
+        which is the case for a test run.
+
+        The run configuration is read from two places, because Airflow
+        exposes it in two places: ``params`` is the merged view of the
+        DAG params and the run configuration, and ``dag_run.conf`` is
+        the raw configuration of this run.  Reading only the first one
+        would lose the month on the Airflow versions that do not merge
+        the run configuration into the params.
+        """
+        sources = [context.get("params")]
+
+        dag_run = context.get("dag_run")
+        if dag_run is not None:
+            raw_conf = getattr(dag_run, "conf", None)
+            if raw_conf is None and isinstance(dag_run, dict):
+                raw_conf = dag_run.get("conf")
+            if raw_conf:
+                sources.append({"conf": raw_conf})
+
+        named = None
+        for source in sources:
+            named = _conf_reporting_month(source)
+            if named:
+                break
+
         logical_date = context.get("logical_date")
 
+        reporting_month = named or _reporting_month(logical_date)
+
+        print(f"REPORTING MONTH: {reporting_month}")
+
         return {
-            "reporting_month": _reporting_month(logical_date),
+            "reporting_month": reporting_month,
             "legal_entity": "2000",
         }
 
     # ------------------------------------------------------------------
     @task
-    def dispatch_collection_requests(period: dict) -> list:
+    def sync_erp_snapshot(period: dict, **context) -> dict:
+        """Pull the ERP master data and refresh the PO snapshot.
+
+        This is the "download the table from the ERP" step.  The import
+        is recorded in ``import_batch``, so the dashboard can show when
+        the data was last pulled and how many rows it contained.
+
+        The import is idempotent: an identical file that was already
+        imported creates no second batch.
+        """
+        from backend.app.services.po_sync_service import (
+            sync_purchase_orders,
+        )
+        from backend.app.core.xcom_payload import as_dict
+
+        period = as_dict(period, "sync_erp_snapshot.period")
+
+        finish = _record_stage(
+            "ERP_IMPORT", period["reporting_month"], context
+        )
+
+        try:
+            result = sync_purchase_orders(period["reporting_month"])
+        except Exception as exc:  # noqa: BLE001
+            print(f"ERP SYNC FAILED: {type(exc).__name__}: {exc}")
+            finish(
+                status="FAILED",
+                error_message=f"{type(exc).__name__}: {exc}",
+            )
+            raise
+
+        print(f"ERP SYNC: {result}")
+
+        finish(detail={
+            "row_count": result.get("row_count"),
+            "batch_id": result.get("batch_id"),
+            "reused_existing_batch": result.get("reused_existing_batch"),
+            "data_hash": result.get("data_hash"),
+        })
+
+        return {
+            "reporting_month": period["reporting_month"],
+            "legal_entity": period["legal_entity"],
+            "erp_import": result,
+        }
+
+    # ------------------------------------------------------------------
+    @task
+    def freeze_expected_population(period: dict, **context) -> dict:
+        """Freeze the expected PO line population of the month.
+
+        The frozen population is the authority the whole report is
+        validated against.  It is written once and never changes, so
+        the report can always be reconciled against the exact set of
+        lines that was asked for.
+
+        The freeze is idempotent for the same content.  Re-running with
+        a different content is refused, because a frozen population must
+        never silently change underneath an in-flight submission.
+        """
+        from backend.app.services.population_freeze_service import (
+            freeze_population,
+        )
+        from backend.app.core.xcom_payload import as_dict
+
+        period = as_dict(period, "freeze_expected_population.period")
+
+        finish = _record_stage(
+            "FREEZE", period["reporting_month"], context
+        )
+
+        try:
+            result = freeze_population(
+                period["reporting_month"],
+                period["legal_entity"],
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"FREEZE FAILED: {type(exc).__name__}: {exc}")
+            finish(
+                status="FAILED",
+                error_message=f"{type(exc).__name__}: {exc}",
+            )
+            raise
+
+        print(
+            f"FROZEN: {result['frozen_line_count']} PO lines | "
+            f"excluded departments: {result['excluded_department_count']} | "
+            f"filtered lines: {result['filtered_line_count']}"
+        )
+
+        finish(detail={
+            "frozen_line_count": result["frozen_line_count"],
+            "excluded_department_count": result["excluded_department_count"],
+            "filtered_line_count": result["filtered_line_count"],
+            "closed_in_month_count": result["closed_in_month_count"],
+            "authorized_contact_count": result.get("authorized_contact_count"),
+        })
+
+        return {
+            "reporting_month": period["reporting_month"],
+            "legal_entity": period["legal_entity"],
+            "population": result,
+        }
+
+    # ------------------------------------------------------------------
+    @task
+    def dispatch_collection_requests(period: dict, **context) -> list:
         """Prepare and optionally send the collection request of each department.
 
         While ``ACCRUALFLOW_DRY_RUN`` is enabled the requests are only
@@ -131,16 +392,37 @@ def accrualflow_daily_monitoring():
         # The upstream payload may arrive as an object or as JSON text.
         period = as_dict(period, "dispatch_collection_requests.period")
 
-        results = dispatch(
-            period["reporting_month"],
-            period["legal_entity"],
+        finish = _record_stage(
+            "DISPATCH", period["reporting_month"], context
         )
+
+        try:
+            results = dispatch(
+                period["reporting_month"],
+                period["legal_entity"],
+            )
+        except Exception as exc:  # noqa: BLE001
+            finish(
+                status="FAILED",
+                error_message=f"{type(exc).__name__}: {exc}",
+            )
+            raise
+
+        sent = sum(1 for item in results if item.get("sent"))
+        prepared = sum(1 for item in results if not item.get("sent"))
+
+        finish(detail={
+            "request_count": len(results),
+            "sent_count": sent,
+            "prepared_count": prepared,
+            "dry_run": True,
+        })
 
         return results
 
     # ------------------------------------------------------------------
     @task
-    def discover_replies(period: dict) -> list:
+    def discover_replies(period: dict, **context) -> list:
         """Discover the inbound replies of the reporting month.
 
         The reply is correlated to the stored original request thread ids.
@@ -158,6 +440,10 @@ def accrualflow_daily_monitoring():
 
         # The upstream payload may arrive as an object or as JSON text.
         period = as_dict(period, "discover_replies.period")
+
+        finish = _record_stage(
+            "DISCOVER", period["reporting_month"], context
+        )
 
         request_ids: set = set()
         request_threads: set = set()
@@ -190,19 +476,35 @@ def accrualflow_daily_monitoring():
             # remedy in the log instead of an opaque invalid_grant.
             print(f"GMAIL UNAUTHORIZED: {exc}")
             print(f"REMEDY: {exc.remediation}")
+            finish(
+                status="FAILED",
+                error_message=f"Gmail authorization failed: {exc}",
+            )
             raise
 
-        replies = discover(
-            service,
-            days=30,
-            request_thread_ids=request_threads or None,
-            request_message_ids=request_ids or None,
-        )
+        try:
+            replies = discover(
+                service,
+                days=30,
+                request_thread_ids=request_threads or None,
+                request_message_ids=request_ids or None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            finish(
+                status="FAILED",
+                error_message=f"{type(exc).__name__}: {exc}",
+            )
+            raise
 
         print(
             f"Reporting month: {period['reporting_month']} | "
             f"Discovered replies: {len(replies)}"
         )
+
+        finish(detail={
+            "reply_count": len(replies),
+            "request_count": len(request_ids),
+        })
 
         # Only identifiers travel through XCom.
         return [reply.message_id for reply in replies]
@@ -332,7 +634,7 @@ def accrualflow_daily_monitoring():
     # ------------------------------------------------------------------
     @task
     def parse_validate_and_persist(
-        period: dict, message_ids: list
+        period: dict, message_ids: list, **context
     ) -> dict:
         """Parse, validate, compare and persist every archived message."""
         from backend.app.services.completion_pipeline_service import (
@@ -350,6 +652,10 @@ def accrualflow_daily_monitoring():
         message_ids = as_list(
             message_ids,
             "parse_validate_and_persist.message_ids",
+        )
+
+        finish = _record_stage(
+            "PARSE", period["reporting_month"], context
         )
 
         service = get_gmail_service()
@@ -380,12 +686,30 @@ def accrualflow_daily_monitoring():
 
         print(f"Processed: {len(processed)} | Failed: {len(failed)}")
 
+        accepted = sum(
+            1 for item in processed
+            if item.get("accepted_line_count") is not None
+        )
+
+        finish(
+            status="FAILED" if failed else "SUCCESS",
+            detail={
+                "processed_count": len(processed),
+                "failed_count": len(failed),
+            },
+            error_message=(
+                f"{len(failed)} message(s) could not be processed."
+                if failed
+                else None
+            ),
+        )
+
         return {"processed": processed, "failed": failed}
 
     # ------------------------------------------------------------------
     @task
     def generate_correction_workbooks_and_drafts(
-        period: dict, outcome: dict
+        period: dict, outcome: dict, **context
     ) -> list:
         """Build the correction workbooks and the email drafts.
 
@@ -413,6 +737,10 @@ def accrualflow_daily_monitoring():
         outcome = as_dict(
             outcome,
             "generate_correction_workbooks_and_drafts.outcome",
+        )
+
+        finish = _record_stage(
+            "CORRECTION", period["reporting_month"], context
         )
 
         month = f"{period['reporting_month']}-01"
@@ -656,6 +984,16 @@ def accrualflow_daily_monitoring():
                         f"dry_run={draft.dry_run}"
                     )
 
+        prepared = sum(1 for item in corrections if item.get("dry_run"))
+        sent = len(corrections) - prepared
+
+        finish(detail={
+            "correction_count": len(corrections),
+            "prepared_count": prepared,
+            "sent_count": sent,
+            "department_count": len(corrections),
+        })
+
         return corrections
 
     # ------------------------------------------------------------------
@@ -782,7 +1120,7 @@ def accrualflow_daily_monitoring():
 
     # ------------------------------------------------------------------
     @task
-    def export_master_excel(period: dict, outcome: dict) -> dict:
+    def export_master_excel(period: dict, outcome: dict, **context) -> dict:
         """Publish the consolidated Master Excel workbook.
 
         The task depends on the collection outcome on purpose.  Without
@@ -800,6 +1138,10 @@ def accrualflow_daily_monitoring():
         period = as_dict(period, "export_master_excel.period")
         outcome = as_dict(outcome, "export_master_excel.outcome")
 
+        finish = _record_stage(
+            "MASTER_EXCEL", period["reporting_month"], context
+        )
+
         try:
             result = export_master_excel(
                 period["reporting_month"],
@@ -811,6 +1153,10 @@ def accrualflow_daily_monitoring():
                 f"{type(exc).__name__}: {exc}",
                 period["legal_entity"],
             )
+            finish(
+                status="FAILED",
+                error_message=f"{type(exc).__name__}: {exc}",
+            )
             raise
 
         print(
@@ -821,11 +1167,20 @@ def accrualflow_daily_monitoring():
             f"excluded_departments={result.excluded_department_count}"
         )
 
+        finish(detail={
+            "file_name": result.file_name,
+            "expected_line_count": result.expected_line_count,
+            "accepted_line_count": result.accepted_line_count,
+            "exception_count": result.exception_count,
+        })
+
         return result.to_dict()
 
     # ------------------------------------------------------------------
     @task
-    def mark_data_ready(period: dict, export: dict, outcome: dict) -> dict:
+    def mark_data_ready(
+        period: dict, export: dict, outcome: dict, **context
+    ) -> dict:
         """Confirm that the reporting views are consistent with the export.
 
         The Power BI Service refresh itself is deliberately NOT triggered
@@ -844,6 +1199,10 @@ def accrualflow_daily_monitoring():
         period = as_dict(period, "mark_data_ready.period")
         export = as_dict(export, "mark_data_ready.export")
         outcome = as_dict(outcome, "mark_data_ready.outcome")
+
+        finish = _record_stage(
+            "DATA_READY", period["reporting_month"], context
+        )
 
         month = f"{period['reporting_month']}-01"
 
@@ -902,6 +1261,22 @@ def accrualflow_daily_monitoring():
             f"data_ready={data_ready}"
         )
 
+        finish(
+            status="SUCCESS" if data_ready else "FAILED",
+            detail={
+                "expected_rows": counts["expected_rows"],
+                "accepted_rows": counts["accepted_rows"],
+                "reconciled": reconciled,
+                "collection_complete": collection_complete,
+                "data_ready": data_ready,
+                "master_file": export["file_name"],
+            },
+            error_message=(
+                None if data_ready
+                else "The period did not reconcile; it is not ready."
+            ),
+        )
+
         return {
             "reporting_month": period["reporting_month"],
             "expected_rows": counts["expected_rows"],
@@ -919,26 +1294,33 @@ def accrualflow_daily_monitoring():
     # ------------------------------------------------------------------
     period = resolve_reporting_period()
 
+    # The ERP snapshot and the frozen population come first.  Every
+    # later task is validated against the frozen population, so it has
+    # to exist before the departments are asked to report.
+    erp = sync_erp_snapshot(period)
+
+    frozen = freeze_expected_population(erp)
+
     # The collection request is only sent once per reporting month.  The
     # task is idempotent: a repeated run updates the existing row instead
     # of creating a second request.
-    dispatch_collection_requests(period)
+    dispatch_collection_requests(frozen)
 
-    discovered = discover_replies(period)
+    discovered = discover_replies(frozen)
 
-    registered = register_and_deduplicate(period, discovered)
+    registered = register_and_deduplicate(frozen, discovered)
 
-    archived = archive_raw_emails_and_attachments(period, registered)
+    archived = archive_raw_emails_and_attachments(frozen, registered)
 
-    outcome = parse_validate_and_persist(period, archived)
+    outcome = parse_validate_and_persist(frozen, archived)
 
-    corrections = generate_correction_workbooks_and_drafts(period, outcome)
+    corrections = generate_correction_workbooks_and_drafts(frozen, outcome)
 
-    statuses = update_department_status(period, outcome, corrections)
+    statuses = update_department_status(frozen, outcome, corrections)
 
-    export = export_master_excel(period, outcome)
+    export = export_master_excel(frozen, outcome)
 
-    mark_data_ready(period, export, outcome)
+    mark_data_ready(frozen, export, outcome)
 
 
 accrualflow_daily_monitoring()

@@ -1,11 +1,15 @@
 """
-Read-only FastAPI endpoints for status, submissions, exceptions, archive
-metadata and export history.
+The AccrualFlow FastAPI application.
 
-The API is intentionally read only.  It exposes no write operation and it
-never returns a raw filesystem path that could be used to traverse the
+Most endpoints are read only.  They expose no write operation and they
+never return a raw filesystem path that could be used to traverse the
 host.  The archive metadata is exposed through a dedicated download route
 that resolves the path against the configured data root.
+
+There is exactly one write path: the manual trigger of the monthly
+collection cycle.  The owner starts one run per reporting month, and
+the trigger does nothing but ask Airflow to start it.  The pipeline
+itself still lives in the DAG, where every task is retryable.
 """
 
 from pathlib import Path
@@ -18,6 +22,19 @@ from backend.app.core.config import (
     DATA_DIR,
     REPORTING_TIMEZONE,
 )
+from backend.app.services.cycle_progress_service import (
+    cycle_progress,
+    email_evidence,
+    erp_import_evidence,
+    master_export_evidence,
+)
+from backend.app.services.cycle_trigger_service import (
+    TriggerError,
+    active_run,
+    list_runs,
+    next_month,
+    trigger_month,
+)
 from backend.app.services.department_status_service import (
     list_department_statuses,
 )
@@ -25,7 +42,9 @@ from backend.app.services.dashboard_service import (
     available_months,
     completion_trend_series,
     completion_trends,
+    default_month,
     department_overview,
+    is_test_period,
     population_closed_lines,
     population_exclusions,
     population_scope,
@@ -43,7 +62,7 @@ from backend.app.services.submission_persistence_service import (
 app = FastAPI(
     title="AccrualFlow AI",
     description="CapEx Accrual Automation API",
-    version="0.2.0",
+    version="0.3.0",
 )
 
 # The web dashboard.  It reads the same reporting views that Power BI
@@ -390,9 +409,19 @@ def _dashboard(query, reader):
 
 @app.get("/api/v1/dashboard/months")
 def get_dashboard_months():
-    """Every reporting month that has a frozen population, newest first."""
+    """Every reporting month that has a frozen population, newest first.
+
+    ``default`` is the period the dashboard opens on.  It is the live
+    period, never a test period, even though a test period in a far
+    future year sorts first.
+    """
     try:
-        return {"months": available_months()}
+        months = available_months()
+        return {
+            "months": months,
+            "default": default_month(),
+            "test_periods": [m for m in months if is_test_period(m)],
+        }
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=503,
@@ -558,3 +587,104 @@ def download_eml(archive_id: int):
         media_type="message/rfc822",
         filename=candidate.name,
     )
+
+
+# ---------------------------------------------------------------------------
+# The monthly cycle - progress and the manual trigger
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/v1/cycle/progress")
+def get_cycle_progress(
+    reporting_month: str = Query(..., description="YYYY-MM"),
+):
+    """How far the monthly collection cycle of a reporting month has got.
+
+    The result carries the fixed stage list with the state of each
+    stage, so the dashboard never has to work out what comes next.
+    """
+    try:
+        _month_start(reporting_month)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Reporting month must use YYYY-MM format",
+        ) from exc
+
+    try:
+        return cycle_progress(reporting_month)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail="The reporting database is unavailable",
+        ) from exc
+
+
+@app.get("/api/v1/cycle/evidence")
+def get_cycle_evidence(
+    reporting_month: str = Query(..., description="YYYY-MM"),
+):
+    """The raw evidence of the month.
+
+    The progress view says where the cycle stands.  This says what the
+    pipeline actually wrote: how many ERP rows were imported, how many
+    requests went out, how many replies came back and how many
+    corrections were prepared.
+    """
+    try:
+        _month_start(reporting_month)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Reporting month must use YYYY-MM format",
+        ) from exc
+
+    try:
+        return {
+            "reporting_month": reporting_month,
+            "email": email_evidence(reporting_month),
+            "erp_imports": erp_import_evidence(reporting_month),
+            "master_exports": master_export_evidence(reporting_month),
+        }
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail="The reporting database is unavailable",
+        ) from exc
+
+
+@app.get("/api/v1/cycle/runs")
+def get_cycle_runs(limit: int = Query(default=10, ge=1, le=50)):
+    """The most recent runs of the cycle.
+
+    The Airflow API is consulted, so this endpoint reports the runs
+    themselves rather than the progress ledger.
+    """
+    try:
+        return {
+            "runs": list_runs(limit=limit),
+            "active_run": active_run(),
+            "suggested_month": next_month(),
+        }
+    except TriggerError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/cycle/trigger")
+def post_cycle_trigger(
+    reporting_month: str = Query(..., description="YYYY-MM"),
+):
+    """Start the monthly collection cycle for a reporting month.
+
+    This is the only write endpoint of the API.  It does not run
+    anything itself: it asks Airflow to start the DAG run, which then
+    pulls the ERP snapshot, freezes the population, asks the
+    departments to report and publishes the Master Excel.
+
+    The run is asynchronous.  The dashboard follows the progress
+    through ``/api/v1/cycle/progress``.
+    """
+    try:
+        return trigger_month(reporting_month)
+    except TriggerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
