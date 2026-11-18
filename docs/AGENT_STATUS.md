@@ -328,8 +328,8 @@ recreates the view. No report reads from it during the swap.
 | Remote | `https://github.com/COCO-WaterBird/AccrualFlow` |
 | Visibility | Public |
 | Branch | `main` |
-| Commit | `1f3d3b3` — "apply the PO status scope (Open only) with a full exclusion ledger" |
-| Files | 85 |
+| Commit | `bae6389` — "docs: record the D-1 push in the agent status" |
+| Files | 86 |
 
 **Secrets are excluded.** The OAuth client secret, the OAuth token, the
 `.env` file and the whole `backend/config/` folder are in `.gitignore` and

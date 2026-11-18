@@ -20,8 +20,15 @@
 
 -- ---------------------------------------------------------------------------
 -- Page 6 - The PO lines that were filtered out by their status
+--
+-- The views are dropped first, because a view cannot change its column
+-- list in place.  They are READ ONLY, and no report reads from them
+-- during the swap.
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE VIEW vw_pbi_population_status_exclusions AS
+DROP VIEW IF EXISTS vw_pbi_population_status_exclusions;
+DROP VIEW IF EXISTS vw_pbi_population_closed_lines;
+
+CREATE VIEW vw_pbi_population_status_exclusions AS
 SELECT
     pse.reporting_month,
     pse.legal_entity,
@@ -41,10 +48,6 @@ SELECT
     -- NULL when the ERP has not been imported twice, so that no status
     -- change could be observed yet.
     pse.last_active_month,
-
-    -- Whether the line closed during the reporting month itself.  Such a
-    -- line is retained in that month's population.
-    pse.closed_in_reporting_month,
 
     -- Whether finance has been told about the exclusion.
     pse.reported_to_finance,
@@ -94,7 +97,7 @@ COMMENT ON VIEW vw_pbi_population_status_exclusions IS
 -- marked as closed so that finance can see the work finished, and so that
 -- the next month can exclude them with a traceable reason.
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE VIEW vw_pbi_population_closed_lines AS
+CREATE VIEW vw_pbi_population_closed_lines AS
 SELECT
     pcl.reporting_month,
     pcl.legal_entity,
@@ -112,7 +115,6 @@ SELECT
     -- The month the line is retained in.  It is the month in which the
     -- work finished.
     pcl.last_active_month,
-    pcl.closed_at,
 
     -- The completion the department reported for the line in that month.
     e.previous_completion_pct AS last_reported_completion_pct,

@@ -32,8 +32,7 @@ from backend.app.services.population_status_scope_service import (  # noqa: E402
     LIFECYCLE_ACTIVE,
     LIFECYCLE_CLOSED_IN_MONTH,
     apply_status_scope,
-    derive_last_active_month,
-    is_closed_in_last_active_month,
+    classify_line_status,
 )
 from backend.app.services.submission_persistence_service import connect  # noqa: E402
 
@@ -212,10 +211,11 @@ def test_the_last_active_month_is_unknown_without_history():
     """With one capture there is no status change to observe."""
     captures = [{"po_status": "Open", "captured_at": None}]
 
-    month, known = derive_last_active_month(captures, MONTH)
+    month, known, closed = classify_line_status(captures, "Open", MONTH)
 
     assert month is None
     assert known is False
+    assert closed is False
 
 
 def test_the_last_active_month_is_derived_from_the_history():
@@ -230,10 +230,11 @@ def test_the_last_active_month_is_derived_from_the_history():
         },
     ]
 
-    month, known = derive_last_active_month(captures, MONTH)
+    month, known, closed = classify_line_status(captures, "Open", MONTH)
 
     assert known is True
     assert month == date(2097, 4, 1)
+    assert closed is False
 
 
 def test_a_line_that_was_open_in_march_is_last_active_in_april():
@@ -253,10 +254,11 @@ def test_a_line_that_was_open_in_march_is_last_active_in_april():
         },
     ]
 
-    month, known = derive_last_active_month(captures, MONTH)
+    month, known, closed = classify_line_status(captures, "Closed", MONTH)
 
     assert known is True
     assert month == date(2097, 4, 1)
+    assert closed is True
 
 
 # ---------------------------------------------------------------------------
@@ -275,15 +277,18 @@ def test_a_line_that_closes_during_the_month_is_detected(erp_history):
         datetime(2097, 4, 10, tzinfo=timezone.utc),
     )
 
-    closed = is_closed_in_last_active_month(
+    scope = apply_status_scope(
         MONTH,
         [_po("PO-CLOSING", 1, "Closed")],
         ENTITY,
     )
 
-    assert len(closed) == 1
-    assert closed[0].po_number == "PO-CLOSING"
-    assert closed[0].last_active_month == date(2097, 4, 1)
+    assert len(scope.closed_in_month) == 1
+    assert scope.closed_in_month[0].po_number == "PO-CLOSING"
+    assert scope.closed_in_month[0].last_active_month == date(2097, 4, 1)
+
+    # The line is retained in this month, so it is not an exclusion yet.
+    assert scope.excluded == []
 
 
 def test_a_line_that_was_already_closed_is_not_a_mid_month_close(erp_history):
@@ -297,13 +302,14 @@ def test_a_line_that_was_already_closed_is_not_a_mid_month_close(erp_history):
         datetime(2097, 4, 10, tzinfo=timezone.utc),
     )
 
-    closed = is_closed_in_last_active_month(
+    scope = apply_status_scope(
         MONTH,
         [_po("PO-OLD", 1, "Closed")],
         ENTITY,
     )
 
-    assert closed == []
+    assert scope.closed_in_month == []
+    assert len(scope.excluded) == 1
 
 
 def test_a_line_that_closed_in_a_previous_month_is_not_a_mid_month_close(
@@ -319,13 +325,13 @@ def test_a_line_that_closed_in_a_previous_month_is_not_a_mid_month_close(
         datetime(2097, 2, 10, tzinfo=timezone.utc),
     )
 
-    closed = is_closed_in_last_active_month(
+    scope = apply_status_scope(
         MONTH,
         [_po("PO-EARLY", 1, "Closed")],
         ENTITY,
     )
 
-    assert closed == []
+    assert scope.closed_in_month == []
 
 
 def test_a_line_without_history_is_not_a_mid_month_close(erp_history):
@@ -335,13 +341,13 @@ def test_a_line_without_history_is_not_a_mid_month_close(erp_history):
         datetime(2097, 4, 10, tzinfo=timezone.utc),
     )
 
-    closed = is_closed_in_last_active_month(
+    scope = apply_status_scope(
         MONTH,
         [_po("PO-SINGLE", 1, "Closed")],
         ENTITY,
     )
 
-    assert closed == []
+    assert scope.closed_in_month == []
 
 
 # ---------------------------------------------------------------------------

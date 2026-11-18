@@ -146,7 +146,10 @@ def accrualflow_daily_monitoring():
         The reply is correlated to the stored original request thread ids.
         The subject alone is never used as the matching rule.
         """
-        from backend.app.services.gmail_auth_service import get_gmail_service
+        from backend.app.services.gmail_auth_service import (
+            GmailAuthorizationError,
+            get_gmail_service,
+        )
         from backend.app.services.gmail_reply_service import (
             discover_replies as discover,
         )
@@ -179,7 +182,15 @@ def accrualflow_daily_monitoring():
             request_ids = set()
             request_threads = set()
 
-        service = get_gmail_service()
+        try:
+            service = get_gmail_service()
+        except GmailAuthorizationError as exc:
+            # A revoked refresh token cannot be repaired by the pipeline.
+            # Retrying will not help, so the task fails fast with the
+            # remedy in the log instead of an opaque invalid_grant.
+            print(f"GMAIL UNAUTHORIZED: {exc}")
+            print(f"REMEDY: {exc.remediation}")
+            raise
 
         replies = discover(
             service,

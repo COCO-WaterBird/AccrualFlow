@@ -81,10 +81,6 @@ CREATE TABLE IF NOT EXISTS population_status_exclusions (
     -- was never active.
     last_active_month DATE,
 
-    -- Whether the line closed during the reporting month itself.  Such a
-    -- line stays in that month's population, marked as closed.
-    closed_in_reporting_month BOOLEAN NOT NULL DEFAULT FALSE,
-
     -- Whether finance has been told about the exclusion.
     reported_to_finance BOOLEAN NOT NULL DEFAULT FALSE,
     reported_at TIMESTAMPTZ,
@@ -135,12 +131,10 @@ CREATE TABLE IF NOT EXISTS population_closed_lines (
     -- The ERP status at the time the population was frozen.
     po_status VARCHAR(30) NOT NULL DEFAULT 'Closed',
 
-    -- The month in which the line was last active.  For a line that was
-    -- already closed when the population was frozen, this is the month
-    -- before the reporting month.
+    -- The month in which the line was last active.  For a line that
+    -- closed during the reporting month, this is the reporting month
+    -- itself: the line finished partway through it.
     last_active_month DATE,
-
-    closed_at TIMESTAMPTZ,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 

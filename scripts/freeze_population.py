@@ -49,7 +49,6 @@ from backend.app.services.population_status_scope_service import (
     INCLUDED_STATUS,
     LIFECYCLE_CLOSED_IN_MONTH,
     apply_status_scope,
-    is_closed_in_last_active_month,
     record_status_scope,
 )
 from backend.app.services.submission_persistence_service import (
@@ -634,14 +633,8 @@ def freeze(
     # scope.  The filtered lines go on the ledger.
     scope = apply_status_scope(reporting_month, included_rows, legal_entity)
 
-    closed_in_month = is_closed_in_last_active_month(
-        reporting_month,
-        included_rows,
-        legal_entity,
-    )
-
     closed_keys = {
-        (item.po_number, item.po_line) for item in closed_in_month
+        (item.po_number, item.po_line) for item in scope.closed_in_month
     }
 
     status_rows = [
@@ -651,9 +644,6 @@ def freeze(
         and (row.get("po_status") or "").strip().lower()
         == INCLUDED_STATUS.lower()
     ]
-
-    scope.closed_in_month = closed_in_month
-    scope.closed_in_month_count = len(closed_in_month)
 
     # A line that closed during the reporting month stays in that month's
     # population, marked as closed, so the month in which the work

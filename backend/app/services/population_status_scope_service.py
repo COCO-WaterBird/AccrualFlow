@@ -62,7 +62,6 @@ class StatusExclusion:
     po_line_amount: object | None = None
     currency: str | None = None
     last_active_month: date | None = None
-    closed_in_reporting_month: bool = False
     exclusion_reason: str = EXCLUSION_REASON_STATUS
 
 
@@ -88,10 +87,8 @@ class StatusScopeResult:
     reporting_month: str
     included_count: int = 0
     excluded_count: int = 0
-    closed_in_month_count: int = 0
     excluded: list[StatusExclusion] = field(default_factory=list)
     closed_in_month: list[ClosedInMonth] = field(default_factory=list)
-    last_active_known: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -225,36 +222,6 @@ def classify_line_status(
     return closing_month, True, closed_in_reporting_month
 
 
-def derive_last_active_month(
-    history: list[dict],
-    reporting_month: str,
-) -> tuple[date | None, bool]:
-    """Return the last month in which the line was still active.
-
-    A line is *active* while its status is ``Open``, and it stays active
-    during the month in which it closes, because it finishes partway
-    through that month.
-
-    The second element of the result says whether the answer is known.
-    It is only known when the ERP has been imported more than once, so
-    that a status change could actually be observed.  With a single
-    import batch there is no history to read, and the answer stays
-    unknown rather than being guessed.
-    """
-    if len(history) < 2:
-        return None, False
-
-    current_status = history[-1].get("po_status") or ""
-
-    last_active, known, _closed = classify_line_status(
-        history,
-        current_status,
-        reporting_month,
-    )
-
-    return last_active, known
-
-
 # ---------------------------------------------------------------------------
 # Applying the scope
 # ---------------------------------------------------------------------------
@@ -274,6 +241,9 @@ def apply_status_scope(
     line that **closed during the reporting month**: such a line stays in
     the population of its last active month, marked as closed, and only
     leaves the population from the following month on.
+
+    The result carries both lists, so the caller does not have to classify
+    the lines a second time.
     """
     result = StatusScopeResult(reporting_month=reporting_month)
 
@@ -287,91 +257,50 @@ def apply_status_scope(
             continue
 
         key = (str(row["po_number"]), int(row["po_line"]))
-        last_active, known, closed_in_month = classify_line_status(
-            history.get(key, []),
-            status,
-            reporting_month,
-        )
-
-        if known:
-            result.last_active_known = True
-
-        if closed_in_month:
-            # The line closed during this month.  It is retained in this
-            # month's population, so it is not an exclusion yet.
-            result.closed_in_month_count += 1
-            continue
-
-        exclusion = StatusExclusion(
-            po_number=str(row["po_number"]),
-            po_line=int(row["po_line"]),
-            po_status=status,
-            cost_center=str(row["cost_center"] or ""),
-            department_name=row.get("department"),
-            manager=row.get("manager"),
-            po_description=row.get("description"),
-            po_line_amount=row.get("po_line_amount"),
-            currency=row.get("currency"),
-            last_active_month=last_active,
-            closed_in_reporting_month=closed_in_month,
-            exclusion_reason=(
-                EXCLUSION_REASON_CLOSED
-                if status.lower() == "closed"
-                else EXCLUSION_REASON_STATUS
-            ),
-        )
-
-        result.excluded.append(exclusion)
-        result.excluded_count += 1
-
-    return result
-
-
-def is_closed_in_last_active_month(
-    reporting_month: str,
-    po_rows: list[dict],
-    legal_entity: str = "2000",
-) -> list[ClosedInMonth]:
-    """Return the lines that closed during the reporting month.
-
-    A line closed during the reporting month when the ERP history shows
-    that it was open in an earlier capture and is closed now, with the
-    closing happening inside the reporting month.  Such a line stays in
-    the population of that month, marked as closed.
-    """
-    result: list[ClosedInMonth] = []
-
-    history = load_status_history(legal_entity)
-
-    for row in po_rows:
-        status = (row.get("po_status") or "").strip()
-
-        if status.lower() != "closed":
-            continue
-
-        key = (str(row["po_number"]), int(row["po_line"]))
         last_active, _known, closed_in_month = classify_line_status(
             history.get(key, []),
             status,
             reporting_month,
         )
 
-        if not closed_in_month:
+        if closed_in_month:
+            # The line closed during this month.  It is retained in this
+            # month's population, so it is not an exclusion yet.
+            result.closed_in_month.append(
+                ClosedInMonth(
+                    po_number=str(row["po_number"]),
+                    po_line=int(row["po_line"]),
+                    po_status=status,
+                    cost_center=str(row["cost_center"] or ""),
+                    department_name=row.get("department"),
+                    po_description=row.get("description"),
+                    po_line_amount=row.get("po_line_amount"),
+                    currency=row.get("currency"),
+                    last_active_month=last_active,
+                )
+            )
             continue
 
-        result.append(
-            ClosedInMonth(
+        result.excluded.append(
+            StatusExclusion(
                 po_number=str(row["po_number"]),
                 po_line=int(row["po_line"]),
                 po_status=status,
                 cost_center=str(row["cost_center"] or ""),
                 department_name=row.get("department"),
+                manager=row.get("manager"),
                 po_description=row.get("description"),
                 po_line_amount=row.get("po_line_amount"),
                 currency=row.get("currency"),
                 last_active_month=last_active,
+                exclusion_reason=(
+                    EXCLUSION_REASON_CLOSED
+                    if status.lower() == "closed"
+                    else EXCLUSION_REASON_STATUS
+                ),
             )
         )
+        result.excluded_count += 1
 
     return result
 
@@ -441,9 +370,9 @@ def record_status_scope(
                         cost_center, department_name, manager,
                         po_number, po_line, po_status,
                         po_description, po_line_amount, currency,
-                        last_active_month, closed_in_reporting_month
+                        last_active_month
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (
                         reporting_month, legal_entity,
                         po_number, po_line, po_status
@@ -451,10 +380,7 @@ def record_status_scope(
                     DO UPDATE SET
                         department_name = EXCLUDED.department_name,
                         manager = EXCLUDED.manager,
-                        last_active_month = EXCLUDED.last_active_month,
-                        closed_in_reporting_month = (
-                            EXCLUDED.closed_in_reporting_month
-                        )
+                        last_active_month = EXCLUDED.last_active_month
                     """,
                     (
                         month,
@@ -469,7 +395,6 @@ def record_status_scope(
                         exclusion.po_line_amount,
                         exclusion.currency,
                         exclusion.last_active_month,
-                        exclusion.closed_in_reporting_month,
                     ),
                 )
 
@@ -481,9 +406,9 @@ def record_status_scope(
                         cost_center, department_name,
                         po_number, po_line,
                         po_description, po_line_amount, currency,
-                        po_status, last_active_month, closed_at
+                        po_status, last_active_month
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (
                         reporting_month, legal_entity, po_number, po_line
                     )
@@ -503,7 +428,6 @@ def record_status_scope(
                         closed.currency,
                         closed.po_status,
                         closed.last_active_month,
-                        month,
                     ),
                 )
 
@@ -547,34 +471,9 @@ def load_status_exclusions(
                     cost_center, department_name, manager,
                     po_number, po_line, po_status,
                     po_description, po_line_amount, currency,
-                    last_active_month, closed_in_reporting_month,
+                    last_active_month,
                     reported_to_finance, reported_at
                 FROM population_status_exclusions
-                WHERE reporting_month = %s AND legal_entity = %s
-                ORDER BY cost_center, po_number, po_line
-                """,
-                (month, legal_entity),
-            )
-            return list(cur.fetchall())
-
-
-def load_closed_lines(
-    reporting_month: str,
-    legal_entity: str = "2000",
-) -> list[dict]:
-    """Load the PO lines that closed during a reporting month."""
-    month = date.fromisoformat(f"{reporting_month}-01")
-
-    with connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT
-                    cost_center, department_name,
-                    po_number, po_line, po_status,
-                    po_description, po_line_amount, currency,
-                    last_active_month, closed_at
-                FROM population_closed_lines
                 WHERE reporting_month = %s AND legal_entity = %s
                 ORDER BY cost_center, po_number, po_line
                 """,
