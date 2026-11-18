@@ -509,8 +509,8 @@ sidebar collapses into a drawer under 900px. Both periods were checked:
 | Remote | `https://github.com/COCO-WaterBird/AccrualFlow` |
 | Visibility | Public |
 | Branch | `main` |
-| Commit | `fe0beea` — "the web dashboard" |
-| Files | 87 |
+| Commit | `fe4118d` — "the dashboard redesign" |
+| Files | 88 |
 
 **Secrets are excluded.** The OAuth client secret, the OAuth token, the
 `.env` file and the whole `backend/config/` folder are in `.gitignore` and
@@ -546,3 +546,4 @@ identical to the local commit, and the credential backup folder is absent.
 | 2026-11-17 | **The web dashboard was built.** The owner asked where to see the dashboard; Power BI is Microsoft's software and is not in the repository (no `.pbix` file existed, and the browser Power BI needs the on-premises data gateway plus a Pro licence to reach a local database). The project now ships its own dashboard on the same nine reporting views, so it can never disagree with the official report. A bug was found and fixed: the page hung on "正在加载…" because the month list response shape was not handled. Verified in the browser, all six tabs, both periods. Test suite: 206 → **232 passed**. |
 | 2026-11-17 | **Pushed to GitHub** — commit `fe0beea` on `main`. |
 | 2026-11-17 | **The dashboard was redesigned to the enterprise North American standard** (Ramp / Stripe / Linear, shadcn/ui tokens): left sidebar with badge counters, compact KPI cards, review queues, semantic status badges in American English, tabular figures, responsive drawer. The stack is unchanged — one self contained HTML file, no React, no Node, no CDN. The standing project rules were written to `.cursor/rules/project-rules.md`. Verified in the browser: no JavaScript errors on any of the six pages, period switching reloads every panel. Test suite: **232 passed**. |
+| 2026-11-17 | **Pushed to GitHub** — commit `fe4118d` on `main`. |
