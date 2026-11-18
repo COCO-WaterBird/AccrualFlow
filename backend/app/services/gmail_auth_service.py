@@ -258,12 +258,18 @@ def _persist(creds) -> None:
     TOKEN_FILE.chmod(0o600)
 
 
-def get_gmail_service():
+def get_gmail_service(allow_reauthorise: bool = False):
     """Return an authorised Gmail service.
 
     The token is refreshed in place.  When the refresh token has been
     revoked a :class:`GmailAuthorizationError` is raised, which names the
     remedy.
+
+    ``allow_reauthorise`` makes a revoked token fall back to the
+    interactive consent flow instead of raising.  That is what the CLI
+    entry point needs: the human who runs it is there to re-authorise.
+    A pipeline run leaves it at False, because a run must never open a
+    browser and wait for someone.
     """
     creds = None
 
@@ -275,22 +281,33 @@ def get_gmail_service():
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds = _refresh(creds)
+            try:
+                creds = _refresh(creds)
+            except GmailAuthorizationError:
+                if not allow_reauthorise:
+                    raise
+
+                # The refresh token is gone, so the only way forward is a
+                # new consent.
+                creds = None
         else:
-            if not CREDENTIALS_FILE.exists():
-                raise FileNotFoundError(
-                    f"OAuth credentials not found: {CREDENTIALS_FILE}"
-                )
+            creds = None
 
-            flow = InstalledAppFlow.from_client_secrets_file(
-                str(CREDENTIALS_FILE),
-                SCOPES,
+    if not creds:
+        if not CREDENTIALS_FILE.exists():
+            raise FileNotFoundError(
+                f"OAuth credentials not found: {CREDENTIALS_FILE}"
             )
 
-            creds = flow.run_local_server(
-                port=0,
-                open_browser=True,
-            )
+        flow = InstalledAppFlow.from_client_secrets_file(
+            str(CREDENTIALS_FILE),
+            SCOPES,
+        )
+
+        creds = flow.run_local_server(
+            port=0,
+            open_browser=True,
+        )
 
         _persist(creds)
 
@@ -303,12 +320,12 @@ def get_gmail_service():
     )
 
 
-def verify_authorization() -> dict:
+def verify_authorization(allow_reauthorise: bool = False) -> dict:
     """Check the authorisation and return the account profile.
 
     Nothing is sent and nothing is modified.
     """
-    service = get_gmail_service()
+    service = get_gmail_service(allow_reauthorise=allow_reauthorise)
 
     profile = service.users().getProfile(userId="me").execute()
 
@@ -324,7 +341,9 @@ if __name__ == "__main__":
     print()
 
     try:
-        profile = verify_authorization()
+        # This entry point is the explicit, human driven re-authorisation,
+        # so a revoked token falls back to the interactive consent flow.
+        profile = verify_authorization(allow_reauthorise=True)
     except GmailAuthorizationError as exc:
         print(f"Gmail OAuth: FAILED - {exc}")
         print()

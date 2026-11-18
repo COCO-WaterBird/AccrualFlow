@@ -256,6 +256,81 @@ def test_a_revoked_token_raises_an_actionable_error(token_file, monkeypatch):
     assert "gmail_auth_service" in excinfo.value.remediation
 
 
+def test_a_revoked_token_falls_back_to_the_consent_flow_when_allowed(
+    token_file,
+    monkeypatch,
+):
+    """The CLI is the human driven path, so it re-authorises."""
+    from google.auth.exceptions import RefreshError
+
+    _write_token(token_file)
+
+    class FakeCreds:
+        expired = True
+        valid = False
+        refresh_token = "refresh"
+
+        def refresh(self, request):
+            raise RefreshError(
+                "invalid_grant: Token has been expired or revoked."
+            )
+
+    monkeypatch.setattr(
+        auth,
+        "Credentials",
+        type(
+            "C",
+            (),
+            {
+                "from_authorized_user_file": staticmethod(
+                    lambda *args, **kwargs: FakeCreds()
+                )
+            },
+        ),
+    )
+
+    consent = {}
+
+    class FakeFlow:
+        @staticmethod
+        def from_client_secrets_file(*args, **kwargs):
+            return FakeFlow()
+
+        def run_local_server(self, **kwargs):
+            consent["started"] = True
+
+            class Creds:
+                valid = True
+                expired = False
+                refresh_token = "refresh"
+
+                def to_json(self):
+                    return json.dumps({
+                        "token": "access",
+                        "refresh_token": "refresh",
+                    })
+
+            return Creds()
+
+    monkeypatch.setattr(auth, "InstalledAppFlow", FakeFlow)
+    monkeypatch.setattr(auth, "CREDENTIALS_FILE", token_file.parent / "creds.json")
+    token_file.parent.joinpath("creds.json").write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(
+        auth,
+        "build",
+        lambda *args, **kwargs: "service",
+    )
+
+    service = auth.get_gmail_service(allow_reauthorise=True)
+
+    assert consent.get("started") is True
+    assert service == "service"
+
+    # The new grant time is recorded, so the 7 day window is known again.
+    assert auth.granted_at() is not None
+
+
 def test_a_transient_refresh_error_is_not_swallowed(token_file, monkeypatch):
     from google.auth.exceptions import RefreshError
 

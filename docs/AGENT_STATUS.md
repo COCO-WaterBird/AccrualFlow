@@ -18,8 +18,9 @@ Excel, in a CSV, in the database and on **Power BI Page 6**. The
 mid-month closure rule is implemented and covered by tests, and it
 activates by itself from the second ERP import onwards.
 
-One verification remains: a full DAG run end-to-end. That run is blocked
-by a revoked Gmail OAuth token — see *Blockers*.
+The Gmail OAuth blocker is **cleared** — the account was re-authorised
+and a fresh token is in place. The remaining verification is a full DAG
+run end-to-end — see *Next actions*.
 
 ---
 
@@ -143,43 +144,38 @@ None. All background shells have finished.
 
 ## 4. Blockers
 
-### 4.1 Gmail OAuth refresh token is revoked — **blocks the full DAG run**
+**None.** The Gmail OAuth token was re-authorised on 2026-11-17 and the
+token file now records the consent time, so the 7 day testing-mode window
+is predictable.
 
-- **Symptom:** `google.auth.exceptions.RefreshError: invalid_grant — Token
-  has been expired or revoked.`
-- **Scope:** the `discover_replies` task only. The four tasks before it
-  (`resolve_reporting_period`, `dispatch_collection_requests`) and the
-  three after it that do not need a reply
-  (`export_master_excel`, `mark_data_ready`) succeed. The five tasks
-  between them are `upstream_failed`.
-- **Evidence:** the token's `expiry` is `2026-11-17T01:04:10Z`; a direct
-  refresh attempt fails with `invalid_grant`.
-- **Why it is not a code bug:** the refresh token was revoked at the
-  Google account level. The application cannot repair it; the account has
-  to grant access again.
-- **Owner action:** re-run the OAuth consent once —
-  `python3 -m backend.app.services.gmail_auth_service` — which opens a
-  browser window and rewrites `backend/config/gmail_token.json`.
-- **Important:** no email was sent. `ACCRUALFLOW_DRY_RUN=true` is in
-  force, and the six collection requests are recorded as `DRY_RUN`.
+### 4.1 Gmail OAuth — the bug that blocked re-authorisation, now fixed
 
-**The failure is now legible.** The service raises
-`GmailAuthorizationError`, which names the remedy, and the DAG prints it
-before failing the task. The token state is readable without a
-traceback:
-
-```
-$ python3 -m backend.app.services.gmail_auth_service
-Token state: Gmail token granted at 2026-11-10T05:49:14+00:00. The 7 day
-testing-mode window ends at 2026-11-17T05:49:14+00:00 (0.0 h left).
-```
-
-The 7 day window is a Google rule for an OAuth app in **"Testing"**
-publishing status, not a bug. It is the most common cause of a token
-that "worked last week and is revoked today", so the consent time is now
-recorded in the token file and the module warns a day before the window
-closes.
-
+- **Symptom:** running `python3 -m backend.app.services.gmail_auth_service`
+  printed `Gmail OAuth: FAILED - ... Token has been expired or revoked` and
+  then told the owner to run **the same command again**. The command could
+  never succeed: the revoked token raised out of the refresh step, so the
+  interactive consent flow was never reached.
+- **Root cause:** `get_gmail_service()` refreshed the token *before* it
+  considered the consent flow, and the refresh error propagated. A revoked
+  token can only be repaired by a new consent, but the code had no path to
+  one.
+- **Fix:** `get_gmail_service(allow_reauthorise=False)` now takes an
+  explicit flag. When the refresh fails with a revoked token **and** the
+  flag is set, the stale token is discarded and the flow falls through to
+  `InstalledAppFlow.run_local_server(open_browser=True)`, which opens the
+  browser and completes the consent. The CLI entry point passes
+  `allow_reauthorise=True`; every pipeline caller keeps the default
+  `False`, so a DAG run still fails fast and never opens a browser.
+- **Verified:** the re-authorisation completed — account
+  `finance.engineering.lab@gmail.com`, token written to
+  `backend/config/gmail_token.json`, consent time `2026-11-18T00:44:33Z`,
+  so the testing-mode window runs to `2026-11-25T00:44:33Z`.
+- **Test coverage:** `tests/test_gmail_auth.py` — the revoked-token case
+  still raises when the fallback is off, and a new test asserts that the
+  consent flow **is** entered when it is on. Test suite: 205 → **206
+  passed**.
+- **Note:** no email was sent at any point. `ACCRUALFLOW_DRY_RUN=true` is
+  in force.
 
 ### 4.2 Not a blocker, but noted
 
@@ -195,13 +191,13 @@ mid-month closure rule is implemented but dormant until the ERP has a
 
 ```
 $ .venv/bin/python -m pytest -q
-205 passed in 8.87s
+206 passed in 10.57s
 ```
 
 | Suite | Result |
 |---|---|
-| Whole suite (205 tests) | **205 passed** |
-| `tests/test_gmail_auth.py` | 21 passed (new) |
+| Whole suite (206 tests) | **206 passed** |
+| `tests/test_gmail_auth.py` | 22 passed (new) |
 | `tests/test_population_status_scope.py` | 14 passed |
 | `tests/test_freeze_population.py` | 14 passed |
 | `tests/test_population_exclusions.py` | 4 passed |
@@ -211,6 +207,52 @@ $ .venv/bin/python -m pytest -q
 | `tests/test_powerbi_views.py` | 7 passed |
 | Previously flaky export test, 10 consecutive runs | 10/10 passed |
 | Export determinism stress, 15 exports across second boundaries | 1 unique hash |
+
+### 5.1 The full DAG run, end to end — **passed**
+
+The blocker was the revoked Gmail token. With the token restored, the
+whole pipeline was executed against the throwaway period `2098-11` (87
+lines), so the live period `2026-11` was never written to.
+
+```
+$ docker exec -e ACCRUALFLOW_REPORTING_MONTH=2098-11 \
+    accrualflow-airflow-airflow-scheduler-1 \
+    airflow dags test accrualflow_daily_monitoring 2098-11-01
+
+MASTER EXPORT: CapEx_Completion_Master_2098-11.xlsx | expected=87 |
+  accepted=76 | exceptions=17 | excluded_departments=0
+RECONCILE: expected=87 | accepted=76 | export=87 | reconciled=True |
+  collection_complete=True | data_ready=True
+DagRun Finished: state=success
+```
+
+All **10 tasks** succeeded, including `discover_replies` — the task the
+revoked token used to block.
+
+**Nothing was sent.** The collection request for the test period is
+recorded as `status = DRY_RUN` with `gmail_message_id = NULL` and
+`sent_at = NULL`. `ACCRUALFLOW_DRY_RUN=true` was in force for the whole
+run.
+
+**The live period was not touched.** After the run:
+
+```
+reporting_periods   2026-11  frozen  476 lines   (unchanged)
+expected_po_lines   2026-11  476 rows           (unchanged)
+email_requests      2026-11  6 rows, all DRY_RUN, sent_at NULL
+```
+
+**The Power BI views read the 476-line population correctly:**
+
+```
+vw_pbi_population_scope              8 rows
+vw_pbi_population_exclusions          1 row
+vw_pbi_population_status_exclusions 24 rows
+vw_pbi_population_closed_lines       0 rows   (dormant: one ERP import only)
+```
+
+`scripts/run_dag_test.sh [YYYY-MM]` runs the same test. It needs a
+terminal with Docker socket access.
 
 > **Run the tests with `.venv/bin/python`, not the system `python3`.** The
 > two environments were disjoint: the venv had `google-auth` but no
@@ -257,8 +299,8 @@ Department_Summary:
 
 | # | Action | Category |
 |---|---|---|
-| 1 | Owner re-authorises Gmail: `python3 -m backend.app.services.gmail_auth_service` | Owner action (not a code change) |
-| 2 | Run the full DAG end-to-end and confirm all 10 tasks succeed with the 476-line population | Agent, after action 1 |
+| 1 | ~~Owner re-authorises Gmail~~ — **done 2026-11-17, account re-authorised** | Done |
+| 2 | ~~Run the full DAG end-to-end and confirm all 10 tasks succeed with the 476-line population~~ — **done: all 10 tasks passed, `data_ready=True`** | Done |
 | 3 | Verify a submitted reply is parsed, validated, persisted and corrected — the one part of the pipeline never exercised with real data | Agent |
 | 4 | ~~Decide D-1 (PO status scope)~~ — **resolved: Open only, with the mid-month closure retained in its last active month** | Done 2026-11-17 |
 | 5 | ~~Decide D-2 (finance reporting channel for the exclusion list)~~ — **resolved: Power BI** | Done 2026-11-17 |
@@ -385,3 +427,5 @@ identical to the local commit, and the credential backup folder is absent.
 | 2026-11-17 | **Dead weight removed.** The lazy-import machinery in the Gmail service, the extra consent environment variable and exception class, the duplicate classification pass in the status scope, the two test-only wrappers, and the two always-constant ledger columns. Test suite: 184 → **205 passed**. |
 | 2026-11-17 | `pytest` installed in the venv. The two Python environments were disjoint, so runs with the system interpreter skipped every database test and failed every Gmail test. |
 | 2026-11-17 | **Pushed to GitHub** — commit `972f7fb` on `main`. |
+| 2026-11-17 | **The Gmail re-authorisation bug is fixed.** The CLI told the owner to re-run a command that could never succeed, because the revoked token raised out of the refresh step before the consent flow could be reached. `get_gmail_service()` now takes `allow_reauthorise`; the CLI sets it, the pipeline does not. The account was re-authorised and a fresh token is in place (window to `2026-11-25`). Test suite: 205 → **206 passed**. |
+| 2026-11-17 | **The full DAG ran end to end, all 10 tasks green.** `RECONCILE: expected=87 | accepted=76 | export=87 | reconciled=True | collection_complete=True | data_ready=True`. Run against the throwaway period `2098-11`, so the live `2026-11` period was never written to. Nothing was sent: `ACCRUALFLOW_DRY_RUN=true`, the collection request is `DRY_RUN` with `sent_at = NULL`. `scripts/run_dag_test.sh` runs the same test. |
