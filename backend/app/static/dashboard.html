@@ -1,129 +1,504 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AccrualFlow 看板</title>
+<title>AccrualFlow — CapEx Accrual Automation</title>
 <style>
+  /* ===================================================================
+     Design tokens
+     Semantic, not decorative. Colour is reserved for status; everything
+     else is structure.
+     =================================================================== */
   :root {
-    --bg: #f5f6f8;
-    --panel: #ffffff;
-    --ink: #1a1d21;
-    --muted: #6b7280;
-    --line: #e4e7eb;
-    --accent: #2563eb;
-    --ok: #16a34a;
-    --warn: #d97706;
-    --bad: #dc2626;
-    --closed: #7c3aed;
+    --bg:            #f7f8fa;
+    --surface:       #ffffff;
+    --surface-sunken:#fafbfc;
+    --surface-hover: #f4f5f7;
+
+    --ink:           #16181d;
+    --ink-secondary: #5a6069;
+    --ink-muted:     #868d97;
+    --ink-inverse:   #ffffff;
+
+    --border:        #e3e6ea;
+    --border-strong: #d3d8de;
+
+    --accent:        #3b5bdb;
+    --accent-hover:  #3048c0;
+    --accent-soft:   #eef1fd;
+    --accent-ink:    #2c45b8;
+
+    --success:       #1a7f47;
+    --success-soft:  #e6f4ec;
+    --warning:       #96610a;
+    --warning-soft:  #fdf3e0;
+    --info:          #1d5fa8;
+    --info-soft:     #e8f1fb;
+    --destructive:   #b42318;
+    --destructive-soft:#fdecea;
+    --neutral:       #5a6069;
+    --neutral-soft:  #f0f1f3;
+
+    --sidebar-bg:    #fbfbfc;
+    --sidebar-ink:   #6a7078;
+    --sidebar-ink-active:#16181d;
+
+    --radius-sm: 5px;
+    --radius:    7px;
+    --radius-lg: 10px;
+
+    --shadow-sm: 0 1px 2px rgba(16,24,40,.05);
+    --shadow:    0 1px 3px rgba(16,24,40,.08), 0 1px 2px rgba(16,24,40,.04);
+    --shadow-lg: 0 4px 12px rgba(16,24,40,.08), 0 2px 4px rgba(16,24,40,.04);
+
+    --sidebar-w: 218px;
+    --topbar-h:  52px;
   }
+
   * { box-sizing: border-box; }
+
+  html, body { height: 100%; }
+
   body {
     margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
-                 "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     background: var(--bg);
     color: var(--ink);
-    font-size: 14px;
-    line-height: 1.5;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+    font-size: 13px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
   }
-  header {
-    background: var(--panel);
-    border-bottom: 1px solid var(--line);
-    padding: 14px 24px;
+
+  /* ===================================================================
+     Shell
+     =================================================================== */
+  .shell { display: flex; min-height: 100vh; }
+
+  /* ---- Sidebar: quiet, so the content leads ---- */
+  .sidebar {
+    width: var(--sidebar-w);
+    flex: 0 0 var(--sidebar-w);
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--border);
     display: flex;
-    align-items: center;
-    gap: 20px;
-    flex-wrap: wrap;
+    flex-direction: column;
     position: sticky;
     top: 0;
-    z-index: 20;
+    height: 100vh;
   }
-  header h1 { font-size: 17px; margin: 0; font-weight: 650; letter-spacing: .2px; }
-  header .sub { color: var(--muted); font-size: 12px; }
+  .brand {
+    display: flex; align-items: center; gap: 9px;
+    padding: 14px 16px 13px;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand-mark {
+    width: 24px; height: 24px; border-radius: 6px; flex: 0 0 24px;
+    background: linear-gradient(135deg, var(--accent) 0%, #5c7cfa 100%);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 700; font-size: 12px; letter-spacing: -.3px;
+  }
+  .brand-name { font-weight: 650; font-size: 13.5px; letter-spacing: -.1px; }
+  .brand-env {
+    font-size: 10.5px; color: var(--ink-muted); text-transform: uppercase;
+    letter-spacing: .5px; font-weight: 600; margin-top: 1px;
+  }
+  .nav { padding: 10px 8px; flex: 1; overflow-y: auto; }
+  .nav-group {
+    font-size: 10.5px; font-weight: 650; text-transform: uppercase;
+    letter-spacing: .6px; color: var(--ink-muted);
+    padding: 12px 8px 5px;
+  }
+  .nav-group:first-child { padding-top: 4px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 9px; width: 100%;
+    padding: 6px 8px; border: 0; background: none; cursor: pointer;
+    font-family: inherit; font-size: 13px; color: var(--sidebar-ink);
+    border-radius: var(--radius-sm); text-align: left;
+    transition: background .1s, color .1s;
+  }
+  .nav-item:hover { background: var(--surface-hover); color: var(--ink); }
+  .nav-item:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: -1px;
+  }
+  .nav-item.active {
+    background: var(--accent-soft); color: var(--accent-ink); font-weight: 600;
+  }
+  .nav-item .ico { flex: 0 0 15px; width: 15px; height: 15px; opacity: .75; }
+  .nav-item.active .ico { opacity: 1; }
+  .nav-item .count {
+    margin-left: auto; font-size: 11px; font-weight: 650;
+    color: var(--ink-muted); font-variant-numeric: tabular-nums;
+    background: var(--neutral-soft); padding: 0 5px; border-radius: 9px;
+    min-width: 18px; text-align: center;
+  }
+  .nav-item.active .count { background: #fff; color: var(--accent-ink); }
+  .nav-item .count.alert { background: var(--destructive-soft); color: var(--destructive); }
+  .sidebar-foot {
+    padding: 10px 16px 14px; border-top: 1px solid var(--border);
+    font-size: 11px; color: var(--ink-muted);
+  }
+  .sidebar-foot .row { display: flex; justify-content: space-between; gap: 8px; padding: 1.5px 0; }
+  .sidebar-foot .row b { color: var(--ink-secondary); font-weight: 600; }
+
+  /* ---- Main column ---- */
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+  .topbar {
+    height: var(--topbar-h);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 20px;
+    position: sticky; top: 0; z-index: 30;
+  }
+  .topbar h1 {
+    font-size: 14.5px; font-weight: 650; margin: 0; letter-spacing: -.15px;
+  }
+  .topbar .crumb {
+    color: var(--ink-muted); font-size: 12px; display: flex; align-items: center; gap: 6px;
+  }
+  .topbar .crumb::before { content: "/"; color: var(--border-strong); }
   .spacer { flex: 1; }
-  nav { display: flex; gap: 4px; flex-wrap: wrap; padding: 0 24px; background: var(--panel);
-        border-bottom: 1px solid var(--line); position: sticky; top: 57px; z-index: 19; }
-  nav button {
-    border: 0; background: none; padding: 11px 14px; cursor: pointer;
-    font-size: 13.5px; color: var(--muted); border-bottom: 2px solid transparent;
-    font-family: inherit;
+
+  .field { display: flex; align-items: center; gap: 6px; }
+  .field label {
+    font-size: 11.5px; color: var(--ink-secondary); font-weight: 550;
   }
-  nav button:hover { color: var(--ink); }
-  nav button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
-  main { padding: 22px 24px 60px; }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-           margin-bottom: 18px; overflow: hidden; }
-  .panel > h2 { margin: 0; padding: 13px 18px; font-size: 14px; font-weight: 650;
-                border-bottom: 1px solid var(--line); background: #fafbfc; }
-  .panel > h2 .hint { font-weight: 400; color: var(--muted); font-size: 12px; margin-left: 8px; }
-  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
-          gap: 14px; margin-bottom: 18px; }
-  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
-  .kpi .label { color: var(--muted); font-size: 12px; margin-bottom: 5px; }
-  .kpi .value { font-size: 25px; font-weight: 680; letter-spacing: -.4px; }
-  .kpi .value small { font-size: 14px; font-weight: 500; color: var(--muted); }
-  .kpi .foot { color: var(--muted); font-size: 11.5px; margin-top: 4px; }
-  .tablewrap { overflow-x: auto; max-height: 640px; overflow-y: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--line);
-           white-space: nowrap; }
-  th { background: #fafbfc; font-weight: 600; color: var(--muted); font-size: 12px;
-       position: sticky; top: 0; z-index: 2; }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  tr:hover td { background: #f8fafc; }
-  .tag { display: inline-block; padding: 1px 8px; border-radius: 11px; font-size: 11.5px;
-         font-weight: 600; border: 1px solid transparent; }
-  .tag.ok { background: #dcfce7; color: #15803d; }
-  .tag.warn { background: #fef3c7; color: #b45309; }
-  .tag.bad { background: #fee2e2; color: #b91c1c; }
-  .tag.info { background: #dbeafe; color: #1d4ed8; }
-  .tag.mute { background: #f1f5f9; color: #64748b; }
-  .tag.closed { background: #ede9fe; color: #6d28d9; }
-  .bar { height: 6px; border-radius: 3px; background: #e5e7eb; overflow: hidden; min-width: 70px; }
-  .bar > i { display: block; height: 100%; background: var(--accent); }
-  .empty { padding: 26px 18px; color: var(--muted); text-align: center; font-size: 13px; }
-  .note { padding: 11px 18px; background: #fffbeb; border-bottom: 1px solid var(--line);
-          color: #92400e; font-size: 12.5px; }
-  .muted { color: var(--muted); }
-  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-  select, button.act { font-family: inherit; font-size: 13px; padding: 6px 10px;
-      border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
-  button.act { cursor: pointer; }
-  button.act:hover { background: #f3f4f6; }
-  .barwrap { display: flex; align-items: center; gap: 8px; }
-  .barwrap .pct { font-variant-numeric: tabular-nums; min-width: 52px; text-align: right; }
-  .hidden { display: none; }
+  select, .btn {
+    font-family: inherit; font-size: 12.5px; color: var(--ink);
+    padding: 5px 9px; border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm); background: var(--surface);
+    box-shadow: var(--shadow-sm); cursor: pointer;
+  }
+  select { min-width: 108px; }
+  .btn:hover { background: var(--surface-hover); }
+  .btn:focus-visible, select:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  .btn-icon {
+    width: 28px; height: 28px; padding: 0; display: inline-flex;
+    align-items: center; justify-content: center;
+  }
+
+  .content { padding: 18px 20px 56px; max-width: 1560px; width: 100%; }
+
+  /* ===================================================================
+     KPI band
+     Compact, dense, tabular figures.
+     =================================================================== */
+  .kpis {
+    display: grid; gap: 10px; margin-bottom: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+  }
+  .kpi {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 11px 13px 12px;
+    box-shadow: var(--shadow-sm);
+  }
+  .kpi .label {
+    font-size: 11.5px; color: var(--ink-secondary); font-weight: 550;
+    display: flex; align-items: center; gap: 5px; margin-bottom: 6px;
+  }
+  .kpi .label .dot {
+    width: 6px; height: 6px; border-radius: 50%; flex: 0 0 6px;
+  }
+  .kpi .value {
+    font-size: 23px; font-weight: 640; letter-spacing: -.6px;
+    font-variant-numeric: tabular-nums; line-height: 1.12;
+  }
+  .kpi .value .unit {
+    font-size: 13px; font-weight: 500; color: var(--ink-muted); margin-left: 2px;
+  }
+  .kpi .foot {
+    font-size: 11.5px; color: var(--ink-muted); margin-top: 5px;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .kpi .foot .up { color: var(--success); font-weight: 600; }
+  .kpi .foot .down { color: var(--destructive); font-weight: 600; }
+
+  /* ===================================================================
+     Panels
+     =================================================================== */
+  .panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 14px;
+    box-shadow: var(--shadow-sm); overflow: hidden;
+  }
+  .panel-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+  }
+  .panel-head h2 {
+    margin: 0; font-size: 13px; font-weight: 650; letter-spacing: -.1px;
+  }
+  .panel-head .hint {
+    font-size: 11.5px; color: var(--ink-muted); font-weight: 400;
+  }
+  .panel-head .spacer { flex: 1; }
+  .panel-note {
+    padding: 9px 14px; background: var(--warning-soft);
+    border-bottom: 1px solid var(--border);
+    color: var(--warning); font-size: 12px;
+  }
+  .panel-note.info { background: var(--info-soft); color: var(--info); }
+  .panel-body { padding: 12px 14px; }
+  .panel-body.flush { padding: 0; }
+
+  /* Two column split: the primary table next to a narrower side panel */
+  .split { display: grid; gap: 14px; grid-template-columns: minmax(0,1fr) 340px; }
+  @media (max-width: 1180px) { .split { grid-template-columns: 1fr; } }
+
+  /* ===================================================================
+     Tables
+     =================================================================== */
+  .tablewrap { overflow: auto; max-height: 560px; }
+  table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+  th, td {
+    padding: 6px 12px; text-align: left; white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    background: var(--surface-sunken); font-weight: 600; color: var(--ink-secondary);
+    font-size: 11.5px; position: sticky; top: 0; z-index: 2;
+    box-shadow: inset 0 -1px 0 var(--border);
+  }
+  th.num, td.num { text-align: right; }
+  td.num, th.num { font-variant-numeric: tabular-nums; }
+  tbody tr:hover td { background: var(--surface-hover); }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.strong { font-weight: 600; }
+  .muted { color: var(--ink-muted); }
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11.5px; color: var(--ink-secondary);
+  }
+  .ellip {
+    max-width: 220px; overflow: hidden; text-overflow: ellipsis;
+    display: inline-block; vertical-align: bottom;
+  }
+
+  /* ===================================================================
+     Status badges — colour AND text, never colour alone
+     =================================================================== */
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 1px 7px; border-radius: 11px; font-size: 11px;
+    font-weight: 600; white-space: nowrap; line-height: 1.6;
+    border: 1px solid transparent;
+  }
+  .badge .bdot {
+    width: 5px; height: 5px; border-radius: 50%; background: currentColor;
+    flex: 0 0 5px;
+  }
+  .badge.neutral     { background: var(--neutral-soft);     color: var(--neutral); }
+  .badge.success     { background: var(--success-soft);     color: var(--success); }
+  .badge.warning     { background: var(--warning-soft);     color: var(--warning); }
+  .badge.info        { background: var(--info-soft);        color: var(--info); }
+  .badge.destructive { background: var(--destructive-soft); color: var(--destructive); }
+  .badge.closed      { background: #f1ecfd;                 color: #5b32b5; }
+
+  /* ===================================================================
+     Progress
+     =================================================================== */
+  .meter { display: flex; align-items: center; gap: 8px; min-width: 96px; }
+  .meter .track {
+    flex: 1; height: 5px; border-radius: 3px; background: #e8eaed; overflow: hidden;
+  }
+  .meter .track > i { display: block; height: 100%; border-radius: 3px; }
+  .meter .val {
+    font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--ink-secondary);
+    min-width: 42px; text-align: right; font-weight: 600;
+  }
+  .meter.good .track > i { background: var(--success); }
+  .meter.warn .track > i { background: var(--warning); }
+  .meter.bad  .track > i { background: var(--destructive); }
+  .meter.none .track > i { background: var(--border-strong); }
+
+  /* ===================================================================
+     Review queue — the actionable block
+     =================================================================== */
+  .queue { list-style: none; margin: 0; padding: 0; }
+  .queue li {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 9px 14px; border-bottom: 1px solid var(--border);
+  }
+  .queue li:last-child { border-bottom: 0; }
+  .queue .qbody { flex: 1; min-width: 0; }
+  .queue .qtitle {
+    font-size: 12.5px; font-weight: 600; color: var(--ink);
+    display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  }
+  .queue .qmeta {
+    font-size: 11.5px; color: var(--ink-muted); margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .queue .qside { text-align: right; flex: 0 0 auto; }
+  .queue .qcount {
+    font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums;
+    letter-spacing: -.3px;
+  }
+  .queue .qcap { font-size: 10.5px; color: var(--ink-muted); }
+
+  /* ===================================================================
+     Empty & loading
+     =================================================================== */
+  .empty { padding: 30px 16px; text-align: center; color: var(--ink-muted); }
+  .empty .etitle {
+    font-size: 13px; font-weight: 600; color: var(--ink-secondary); margin-bottom: 3px;
+  }
+  .empty .esub { font-size: 12px; }
+  .skeleton {
+    height: 10px; border-radius: 4px;
+    background: linear-gradient(90deg,#eef0f3 25%,#e4e7ea 37%,#eef0f3 63%);
+    background-size: 400% 100%; animation: shimmer 1.3s ease-in-out infinite;
+  }
+  @keyframes shimmer { 0%{background-position:100% 50%} 100%{background-position:0 50%} }
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton { animation: none; }
+  }
+
+  /* ===================================================================
+     Sparkline
+     =================================================================== */
+  .spark { display: block; }
+  .spark .sline { fill: none; stroke: var(--accent); stroke-width: 1.5;
+                  stroke-linejoin: round; stroke-linecap: round; }
+  .spark .sarea { fill: var(--accent); opacity: .09; }
+
+  /* ===================================================================
+     Responsive
+     =================================================================== */
+  .sidebar-toggle { display: none; }
+
+  @media (max-width: 900px) {
+    .sidebar {
+      position: fixed; left: 0; top: 0; z-index: 60;
+      transform: translateX(-100%);
+      transition: transform .18s ease;
+      box-shadow: var(--shadow-lg);
+    }
+    body.nav-open .sidebar { transform: translateX(0); }
+    body.nav-open::after {
+      content: ""; position: fixed; inset: 0; background: rgba(16,24,40,.35);
+      z-index: 55;
+    }
+    .sidebar-toggle { display: inline-flex; }
+    .content { padding: 14px 12px 48px; }
+    .topbar { padding: 0 12px; gap: 8px; }
+    .topbar .crumb { display: none; }
+    .kpis { grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 8px; }
+    .kpi .value { font-size: 20px; }
+    .field label { display: none; }
+  }
+  @media (max-width: 560px) {
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  /* Utility */
+  .hidden { display: none !important; }
+  .nowrap { white-space: nowrap; }
+  .tabnum { font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
-<header>
-  <h1>AccrualFlow 看板</h1>
-  <span class="sub" id="hdr-sub">CapEx 完工进度</span>
-  <div class="spacer"></div>
-  <label class="sub" for="month">报告月份</label>
-  <select id="month"></select>
-  <button class="act" id="reload">刷新</button>
-</header>
+<div class="shell">
 
-<nav id="tabs"></nav>
-<main id="content"><div class="empty">正在加载…</div></main>
+  <!-- ================= Sidebar ================= -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">AF</div>
+      <div>
+        <div class="brand-name">AccrualFlow</div>
+        <div class="brand-env" id="brand-env">CapEx Accrual</div>
+      </div>
+    </div>
+    <nav class="nav" id="nav" aria-label="Main navigation"></nav>
+    <div class="sidebar-foot">
+      <div class="row"><span>Reporting period</span><b id="foot-month">—</b></div>
+      <div class="row"><span>Last export</span><b id="foot-export">—</b></div>
+    </div>
+  </aside>
+
+  <!-- ================= Main ================= -->
+  <div class="main">
+    <header class="topbar">
+      <button class="btn btn-icon sidebar-toggle" id="nav-toggle"
+              aria-label="Toggle navigation">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.4"
+                stroke-linecap="round"/>
+        </svg>
+      </button>
+      <h1 id="page-title">Overview</h1>
+      <span class="crumb" id="page-crumb"></span>
+      <div class="spacer"></div>
+      <div class="field">
+        <label for="month">Period</label>
+        <select id="month" aria-label="Reporting period"></select>
+      </div>
+      <button class="btn btn-icon" id="reload" aria-label="Refresh data"
+              title="Refresh">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2v3h-3"
+                stroke="currentColor" stroke-width="1.4" stroke-linecap="round"
+                stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </header>
+
+    <main class="content" id="content">
+      <div class="empty"><div class="etitle">Loading</div></div>
+    </main>
+  </div>
+</div>
 
 <script>
-const PAGES = [
-  { id: "overview", label: "1 部门总览" },
-  { id: "exceptions", label: "2 校验异常" },
-  { id: "audit", label: "3 提交历史" },
-  { id: "trends", label: "4 完成率趋势" },
-  { id: "scope", label: "5 人口口径" },
-  { id: "status_scope", label: "6 状态口径" },
+/* =====================================================================
+   AccrualFlow dashboard.
+
+   The data comes from the same nine reporting views that Power BI reads,
+   so this dashboard can never disagree with the official report.
+   Every figure is rendered as the view provides it; nothing is
+   recomputed here.
+   ===================================================================== */
+
+const NAV = [
+  { group: "Reporting", items: [
+    { id: "overview",    label: "Overview",          icon: "grid",
+      crumb: "Reporting overview" },
+    { id: "trends",      label: "Trends",            icon: "trend",
+      crumb: "Completion trends" },
+    { id: "exceptions",  label: "Exceptions",        icon: "alert",
+      crumb: "Validation exceptions" },
+    { id: "audit",       label: "Audit Trail",       icon: "history",
+      crumb: "Submission history" },
+  ]},
+  { group: "Scope", items: [
+    { id: "scope",       label: "Population Scope",  icon: "scope",
+      crumb: "Who was asked to report" },
+    { id: "status_scope",label: "PO Status Scope",  icon: "filter",
+      crumb: "Lines filtered by ERP status" },
+  ]},
 ];
+
+const ICONS = {
+  grid:   '<path d="M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM9 9h5v5H9z" fill="currentColor"/>',
+  trend:  '<path d="M2 12l3.5-4 2.5 2.5L13 4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+  alert:  '<path d="M8 1.5L15 14H1z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6v3.2M8 11.4v.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
+  history:'<circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 4.5V8l2.4 1.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/>',
+  scope:  '<path d="M8 1.6A6.4 6.4 0 1 0 8 14.4 6.4 6.4 0 0 0 8 1.6z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 4.5v3.8M8 8.3v3.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
+  filter: '<path d="M2 3h12l-4.6 5.4V14L6.6 12.5V8.4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>',
+};
 
 let MONTH = null;
 let CURRENT = "overview";
 let CACHE = {};
 
-/* ---------------- helpers ---------------- */
+/* ---------------------------------------------------------------------
+   Formatting helpers
+   --------------------------------------------------------------------- */
 
 function esc(v) {
   if (v === null || v === undefined) return "";
@@ -131,75 +506,193 @@ function esc(v) {
     {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]
   ));
 }
+
+/** A stored fraction in [0,1] as a display percentage. */
 function pct(v, digits = 1) {
   if (v === null || v === undefined) return "—";
   return (Number(v) * 100).toFixed(digits) + "%";
 }
+
+/** A value already expressed in percent (0-100). */
 function pctRaw(v, digits = 1) {
   if (v === null || v === undefined) return "—";
   return Number(v).toFixed(digits) + "%";
 }
-function money(v) {
+
+function money(v, currency) {
   if (v === null || v === undefined) return "—";
-  return Number(v).toLocaleString("en-US", {maximumFractionDigits: 0});
+  const n = Number(v);
+  const s = n.toLocaleString("en-US", {maximumFractionDigits: 0});
+  return currency ? `${currency} ${s}` : s;
 }
+
 function num(v) {
   if (v === null || v === undefined) return "—";
   return Number(v).toLocaleString("en-US");
 }
+
 function dt(v) {
   if (!v) return "—";
-  return String(v).replace("T", " ").slice(0, 19);
+  return String(v).replace("T", " ").replace(/\.\d+.*$/, "").slice(0, 16);
 }
-function tag(text, kind) {
-  if (text === null || text === undefined || text === "") return "";
-  return `<span class="tag ${kind || "mute"}">${esc(text)}</span>`;
+
+function date(v) {
+  if (!v) return "—";
+  return String(v).slice(0, 10);
 }
-function statusTag(s) {
-  const map = {
-    "NOT_SUBMITTED": "mute", "SUBMITTED": "info", "PARTIAL": "warn",
-    "COMPLETE": "ok", "CONFIRMED": "ok", "FORMAT_CONFIRMATION_REQUIRED": "warn",
-    "NEEDS_CORRECTION": "bad", "REJECTED": "bad", "MISSING": "bad",
-    "INVALID": "bad", "REVIEW_REQUIRED": "warn", "ACCEPTED": "ok",
-    "CLOSED_IN_MONTH": "closed", "OPEN": "warn", "RESOLVED": "ok",
-    "SUPERSEDED": "mute",
-  };
-  return tag(s, map[s] || "mute");
+
+/* ---------------------------------------------------------------------
+   Status vocabulary.
+   A status is colour AND text. Colour is never the only signal.
+   --------------------------------------------------------------------- */
+
+const BADGE = {
+  /* validation_status */
+  VALID:                       "success",
+  MISSING:                     "destructive",
+  INVALID:                     "destructive",
+  FORMAT_CONFIRMATION_REQUIRED:"warning",
+  UNKNOWN_PO_LINE:             "warning",
+  /* reason_status */
+  NOT_APPLICABLE:              "neutral",
+  DECREASE_REASON_PROVIDED:    "info",
+  DECREASE_REASON_MISSING:     "warning",
+  /* department_status */
+  NOT_SUBMITTED:               "neutral",
+  SUBMITTED:                   "info",
+  PARTIAL:                     "warning",
+  COMPLETE:                    "success",
+  CONFIRMED:                   "success",
+  NEEDS_CORRECTION:            "destructive",
+  REJECTED:                    "destructive",
+  /* processing_status */
+  PROCESSED:                   "success",
+  /* exception severity */
+  ERROR:                       "destructive",
+  CRITICAL:                    "destructive",
+  WARNING:                     "warning",
+  INFO:                        "info",
+  /* issue status */
+  OPEN:                        "warning",
+  RESOLVED:                    "success",
+  SUPERSEDED:                  "neutral",
+  /* correction status */
+  PREPARED:                    "info",
+  SENT:                        "success",
+  FAILED:                      "destructive",
+  SKIPPED:                     "neutral",
+  /* ERP status */
+  Open:                        "success",
+  "On Hold":                   "warning",
+  Closed:                      "destructive",
+  /* lifecycle */
+  CLOSED_IN_MONTH:             "closed",
+  /* population */
+  INCLUDED:                    "success",
+  EXCLUDED:                    "destructive",
+};
+
+function badge(text, kind, dot) {
+  if (text === null || text === undefined || text === "") return "—";
+  const cls = kind || BADGE[text] || "neutral";
+  const d = dot === false ? "" : '<span class="bdot" aria-hidden="true"></span>';
+  return `<span class="badge ${cls}">${d}${esc(text)}</span>`;
 }
-function sevTag(s) {
-  return tag(s, s === "ERROR" || s === "CRITICAL" ? "bad" : s === "WARNING" ? "warn" : "info");
+
+/** Human label for a raw enum, without inventing meaning. */
+function humanCode(code) {
+  if (!code) return "—";
+  return String(code).replace(/_/g, " ").toLowerCase()
+        .replace(/^./, c => c.toUpperCase());
 }
-function bar(v) {
-  if (v === null || v === undefined) return `<span class="muted">—</span>`;
-  const w = Math.max(0, Math.min(100, Number(v)));
-  return `<div class="barwrap"><div class="bar"><i style="width:${w}%"></i></div>` +
-         `<span class="pct">${Number(v).toFixed(1)}%</span></div>`;
-}
-function table(cols, rows, emptyMsg) {
-  if (!rows || rows.length === 0) {
-    return `<div class="empty">${esc(emptyMsg || "没有数据")}</div>`;
+
+function meter(value, kind) {
+  if (value === null || value === undefined) {
+    return `<div class="meter none"><div class="track"><i style="width:0"></i></div>
+            <span class="val">—</span></div>`;
   }
-  const head = cols.map(c => `<th>${esc(c.label)}</th>`).join("");
+  const v = Math.max(0, Math.min(100, Number(value)));
+  const cls = kind || (v >= 90 ? "good" : v >= 50 ? "warn" : "bad");
+  return `<div class="meter ${cls}"><div class="track"><i style="width:${v}%"></i></div>
+          <span class="val">${v.toFixed(1)}%</span></div>`;
+}
+
+/** Inline SVG sparkline from an array of numbers. */
+function sparkline(values, w, h) {
+  const pts = values.filter(v => v !== null && v !== undefined);
+  if (pts.length < 2) return "";
+  const max = Math.max(...pts), min = Math.min(...pts);
+  const span = (max - min) || 1;
+  const step = w / (pts.length - 1);
+  const coords = pts.map((v, i) => [
+    (i * step).toFixed(2),
+    (h - ((v - min) / span) * (h - 3) - 1.5).toFixed(2),
+  ]);
+  const line = coords.map(c => c.join(",")).join(" ");
+  const area = `M0,${h} L${line} L${w},${h} Z`;
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
+            <path class="sarea" d="${area}"></path>
+            <polyline class="sline" points="${line}"></polyline>
+          </svg>`;
+}
+
+function table(cols, rows, emptyTitle, emptySub) {
+  if (!rows || rows.length === 0) {
+    return `<div class="empty"><div class="etitle">${esc(emptyTitle || "No data")}</div>
+            ${emptySub ? `<div class="esub">${esc(emptySub)}</div>` : ""}</div>`;
+  }
+  const head = cols.map(c => `<th class="${c.num ? "num" : ""}">${esc(c.label)}</th>`).join("");
   const body = rows.map(r => {
     const tds = cols.map(c => {
       const v = c.render ? c.render(r) : esc(r[c.key]);
-      return `<td class="${c.num ? "num" : ""}">${v}</td>`;
+      return `<td class="${c.num ? "num" : ""}${c.strong ? " strong" : ""}">${v}</td>`;
     }).join("");
     return `<tr>${tds}</tr>`;
   }).join("");
-  return `<div class="tablewrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
-}
-function panel(title, hint, content, note) {
-  return `<section class="panel"><h2>${esc(title)}${hint ? `<span class="hint">${esc(hint)}</span>` : ""}</h2>` +
-         (note ? `<div class="note">${note}</div>` : "") + content + `</section>`;
-}
-function kpi(label, value, foot) {
-  return `<div class="kpi"><div class="label">${esc(label)}</div>` +
-         `<div class="value">${value}</div>` +
-         (foot ? `<div class="foot">${foot}</div>` : "") + `</div>`;
+  return `<div class="tablewrap"><table><thead><tr>${head}</tr></thead>
+          <tbody>${body}</tbody></table></div>`;
 }
 
-/* ---------------- data ---------------- */
+function panel(title, hint, content, note, noteKind) {
+  return `<section class="panel">
+            <div class="panel-head">
+              <h2>${esc(title)}</h2>
+              ${hint ? `<span class="hint">${esc(hint)}</span>` : ""}
+            </div>
+            ${note ? `<div class="panel-note ${noteKind || ""}">${note}</div>` : ""}
+            ${content}
+          </section>`;
+}
+
+function kpi(label, value, unit, foot, dotColor) {
+  const dot = dotColor
+    ? `<span class="dot" style="background:${dotColor}"></span>` : "";
+  return `<div class="kpi">
+            <div class="label">${dot}${esc(label)}</div>
+            <div class="value">${value}${unit ? `<span class="unit">${esc(unit)}</span>` : ""}</div>
+            ${foot ? `<div class="foot">${foot}</div>` : ""}
+          </div>`;
+}
+
+function qitem(count, caption, title, meta, tone) {
+  const color = tone === "destructive" ? "var(--destructive)"
+              : tone === "warning" ? "var(--warning)"
+              : tone === "info" ? "var(--info)" : "var(--ink)";
+  return `<li>
+            <div class="qbody">
+              <div class="qtitle">${title}</div>
+              <div class="qmeta">${meta}</div>
+            </div>
+            <div class="qside">
+              <div class="qcount" style="color:${color}">${esc(count)}</div>
+              <div class="qcap">${esc(caption)}</div>
+            </div>
+          </li>`;
+}
+
+/* ---------------------------------------------------------------------
+   Data
+   --------------------------------------------------------------------- */
 
 async function api(path) {
   const r = await fetch(path);
@@ -207,17 +700,28 @@ async function api(path) {
   return r.json();
 }
 
-async function load(month) {
+async function loadMonth(month) {
   const q = `?reporting_month=${encodeURIComponent(month)}`;
-  const [scope, statusScope, fresh] = await Promise.all([
+  const [overview, exceptions, audit, trends, series, scope,
+         exclusions, statusScope, closedLines, fresh] = await Promise.all([
+    api(`/api/v1/dashboard/department_overview${q}`),
+    api(`/api/v1/dashboard/validation_exceptions${q}`),
+    api(`/api/v1/dashboard/submission_audit${q}`),
+    api(`/api/v1/dashboard/completion_trends${q}`),
+    api(`/api/v1/dashboard/trend_series`),
     api(`/api/v1/dashboard/population_scope${q}`),
+    api(`/api/v1/dashboard/population_exclusions${q}`),
     api(`/api/v1/dashboard/population_status_exclusions${q}`),
+    api(`/api/v1/dashboard/population_closed_lines${q}`),
     api(`/api/v1/dashboard/freshness${q}`),
   ]);
-  return { scope, statusScope, fresh };
+  return {overview, exceptions, audit, trends, series, scope,
+          exclusions, statusScope, closedLines, fresh};
 }
 
-/* ---------------- pages ---------------- */
+/* ---------------------------------------------------------------------
+   Page: Overview — the top band, the work queue, then the detail
+   --------------------------------------------------------------------- */
 
 function renderOverview(d) {
   const rows = d.overview || [];
@@ -225,123 +729,225 @@ function renderOverview(d) {
   const totalAccepted = rows.reduce((a, r) => a + (r.accepted_line_count || 0), 0);
   const totalMissing  = rows.reduce((a, r) => a + (r.missing_line_count || 0), 0);
   const totalInvalid  = rows.reduce((a, r) => a + (r.invalid_line_count || 0), 0);
+  const totalReview   = rows.reduce((a, r) => a + (r.review_required_count || 0), 0);
   const rate = totalExpected ? (100 * totalAccepted / totalExpected) : 0;
 
+  const submitted = rows.filter(r => r.department_status &&
+    r.department_status !== "NOT_SUBMITTED").length;
+
+  /* The sparkline is the acceptance rate of the reporting months. */
+  const series = d.series || [];
+  const spark = sparkline(series.map(s => s.acceptance_rate_pct), 96, 26);
+
   const kpis = `<div class="kpis">
-    ${kpi("在报 PO 行", num(totalExpected), "已冻结人口")}
-    ${kpi("已验收行", num(totalAccepted), `采纳率 ${rate.toFixed(1)}%`)}
-    ${kpi("缺失行", num(totalMissing), "部门未填写")}
-    ${kpi("无效行", num(totalInvalid), "校验不通过")}
-    ${kpi("部门数", num(rows.length), "已授权收件人")}
+    ${kpi("Expected PO Lines", num(totalExpected), "",
+          "Frozen population · Open status only", "var(--accent)")}
+    ${kpi("Accepted Lines", num(totalAccepted), "",
+          `${rate.toFixed(1)}% of the population`,
+          rate > 0 ? "var(--success)" : "var(--ink-muted)")}
+    ${kpi("Awaiting Response", num(rows.length - submitted), "",
+          `${submitted} of ${rows.length} departments replied`,
+          "var(--warning)")}
+    ${kpi("Open Exceptions", num(d.exceptions.length), "",
+          "Need review before acceptance", "var(--destructive)")}
+    ${kpi("Departments in Scope", num(rows.length), "",
+          "Every department is in scope or on the ledger", "var(--info)")}
   </div>`;
 
-  const t = table([
-    {label:"部门", key:"department_name"},
-    {label:"成本中心", key:"cost_center"},
-    {label:"负责人", key:"department_owner"},
-    {label:"应报行", key:"expected_line_count", num:true},
-    {label:"已验收", key:"accepted_line_count", num:true},
-    {label:"采纳率", num:true, render:r => bar(r.line_acceptance_rate_pct)},
-    {label:"缺失", key:"missing_line_count", num:true},
-    {label:"无效", key:"invalid_line_count", num:true},
-    {label:"待确认格式", key:"format_confirmation_count", num:true},
-    {label:"需复核", key:"review_required_count", num:true},
-    {label:"部门状态", render:r => statusTag(r.department_status)},
-    {label:"最近提交", render:r => dt(r.latest_submission_at)},
-    {label:"催办", render:r => statusTag(r.latest_correction_status)},
-  ], rows, "该月没有部门数据");
+  /* ---- The actionable review queue ---- */
+  const exc = d.exceptions || [];
+  const byCode = {};
+  exc.forEach(e => {
+    const k = e.exception_code + "|" + e.severity;
+    if (!byCode[k]) byCode[k] = {code: e.exception_code, severity: e.severity, n: 0, dept: new Set()};
+    byCode[k].n++;
+    byCode[k].dept.add(e.department_name || e.department_id);
+  });
+  const queueItems = Object.values(byCode)
+    .sort((a, b) => (a.severity === "ERROR" ? 0 : 1) - (b.severity === "ERROR" ? 0 : 1) || b.n - a.n);
 
-  return kpis + panel("部门提交总览", "谁报了、报了多少、还差什么", t);
+  const queue = queueItems.length
+    ? `<ul class="queue">${queueItems.map(q => qitem(
+        q.n, q.n === 1 ? "item" : "items",
+        `${badge(humanCode(q.code), q.severity === "ERROR" ? "destructive" : "warning")}
+         <span>${esc(humanCode(q.code))}</span>`,
+        `${q.dept.size} department${q.dept.size === 1 ? "" : "s"} affected`,
+        q.severity === "ERROR" ? "destructive" : "warning"
+      )).join("")}</ul>`
+    : `<div class="empty"><div class="etitle">Nothing to review</div>
+         <div class="esub">No validation exceptions were raised for this period.</div></div>`;
+
+  /* ---- Department table ---- */
+  const deptTable = table([
+    {label:"Department", key:"department_name", strong:true},
+    {label:"Cost Center", key:"cost_center"},
+    {label:"Owner", render:r => `<span class="ellip">${esc(r.department_owner)}</span>`},
+    {label:"Expected", key:"expected_line_count", num:true},
+    {label:"Accepted", key:"accepted_line_count", num:true},
+    {label:"Acceptance", num:true, render:r => meter(r.line_acceptance_rate_pct)},
+    {label:"Missing", num:true, render:r => r.missing_line_count || `<span class="muted">0</span>`},
+    {label:"Invalid", num:true, render:r => r.invalid_line_count || `<span class="muted">0</span>`},
+    {label:"Status", render:r => badge(r.department_status)},
+    {label:"Last Submission", render:r => dt(r.latest_submission_at)},
+  ], rows, "No departments in this period");
+
+  /* ---- Status scope summary in the side panel ---- */
+  const scopeRows = d.scope || [];
+  const excluded = scopeRows.filter(r => r.population_status === "EXCLUDED");
+  const filteredLines = d.statusScope || [];
+  const filteredAmount = filteredLines.reduce((a, r) => a + Number(r.po_line_amount || 0), 0);
+
+  const sideList = `<div class="panel-body" style="padding:0">
+    <table style="font-size:12.5px"><tbody>
+      <tr><td class="muted">Departments in scope</td>
+          <td class="num strong">${num(scopeRows.length - excluded.length)}</td></tr>
+      <tr><td class="muted">Departments excluded</td>
+          <td class="num strong">${num(excluded.length)}</td></tr>
+      <tr><td class="muted">PO lines filtered by status</td>
+          <td class="num strong">${num(filteredLines.length)}</td></tr>
+      <tr><td class="muted">Value not in population</td>
+          <td class="num strong">${money(filteredAmount)}</td></tr>
+      <tr><td class="muted">Lines closed in period</td>
+          <td class="num strong">${num((d.closedLines || []).length)}</td></tr>
+    </tbody></table>
+  </div>`;
+
+  return kpis + `
+    <div class="split">
+      <div>
+        ${panel("Department Submission Overview",
+                "Who reported, and what is still outstanding", deptTable)}
+      </div>
+      <div>
+        ${panel("Review Queue", "Exceptions grouped by type", queue)}
+        ${panel("Scope Summary", "This period at a glance", sideList)}
+      </div>
+    </div>`;
 }
+
+/* ---------------------------------------------------------------------
+   Page: Exceptions
+   --------------------------------------------------------------------- */
 
 function renderExceptions(d) {
   const rows = d.exceptions || [];
+  const errors = rows.filter(r => r.severity === "ERROR" || r.severity === "CRITICAL");
+  const warnings = rows.filter(r => r.severity === "WARNING");
+
   const kpis = `<div class="kpis">
-    ${kpi("异常总数", num(rows.length), "全部未解决项")}
-    ${kpi("涉及部门", num(new Set(rows.map(r => r.department_id)).size), "")}
-    ${kpi("涉及 PO 行", num(new Set(rows.map(r => r.po_number + "-" + r.po_line)).size), "")}
+    ${kpi("Open Exceptions", num(rows.length), "",
+          "All unresolved items", "var(--destructive)")}
+    ${kpi("Blocking Errors", num(errors.length), "",
+          "Must be resolved before acceptance", "var(--destructive)")}
+    ${kpi("Warnings", num(warnings.length), "",
+          "Need confirmation", "var(--warning)")}
+    ${kpi("Affected Departments", num(new Set(rows.map(r => r.department_id)).size), "",
+          "Departments involved", "var(--info)")}
   </div>`;
 
   const t = table([
-    {label:"部门", key:"department_name"},
-    {label:"PO", render:r => `<span class="mono">${esc(r.po_number)}-${esc(r.po_line)}</span>`},
-    {label:"异常类型", render:r => sevTag(r.exception_code)},
-    {label:"严重度", render:r => sevTag(r.severity)},
-    {label:"说明", render:r => esc(r.detail)},
-    {label:"原始值", render:r => `<span class="mono">${esc(r.raw_value)}</span>`},
-    {label:"识别格式", key:"format_detection"},
-    {label:"建议值", num:true, render:r => pct(r.suggested_pct)},
-    {label:"验收值", num:true, render:r => pct(r.accepted_current_pct)},
-    {label:"上期值", num:true, render:r => pct(r.previous_pct)},
-    {label:"变动(pp)", num:true, render:r => r.change_percentage_points === null ? "—" : Number(r.change_percentage_points).toFixed(1)},
-    {label:"提交人", key:"submitted_by"},
-    {label:"提交时间", render:r => dt(r.submitted_at)},
-  ], rows, "该月没有校验异常 —— 全部行都通过");
+    {label:"Severity", render:r => badge(r.severity)},
+    {label:"Exception", render:r => `<span class="strong">${esc(humanCode(r.exception_code))}</span>`},
+    {label:"Department", key:"department_name"},
+    {label:"PO Line", render:r => `<span class="mono">${esc(r.po_number)}-${esc(r.po_line)}</span>`},
+    {label:"Detail", render:r => `<span class="ellip">${esc(r.detail)}</span>`},
+    {label:"Raw Value", render:r => `<span class="mono">${esc(r.raw_value)}</span>`},
+    {label:"Detected Format", key:"format_detection"},
+    {label:"Suggested", num:true, render:r => pct(r.suggested_pct)},
+    {label:"Accepted", num:true, render:r => pct(r.accepted_current_pct)},
+    {label:"Previous", num:true, render:r => pct(r.previous_pct)},
+    {label:"Change (pp)", num:true, render:r =>
+      r.change_percentage_points === null || r.change_percentage_points === undefined
+        ? "—" : Number(r.change_percentage_points).toFixed(1)},
+    {label:"Submitted By", key:"submitted_by"},
+    {label:"Submitted At", render:r => dt(r.submitted_at)},
+  ], rows, "No validation exceptions",
+     "Every line in this period passed validation.");
 
-  return kpis + panel("校验异常明细",
-    "建议值与验收值分开显示，建议值永远不会被当成已验收的数字",
+  return kpis + panel("Validation Exceptions",
+    "Suggested values are shown separately from accepted values, so a proposed number is never presented as an accepted one",
     t);
 }
+
+/* ---------------------------------------------------------------------
+   Page: Audit Trail
+   --------------------------------------------------------------------- */
 
 function renderAudit(d) {
   const rows = d.audit || [];
   const t = table([
-    {label:"版本", key:"version", num:true},
-    {label:"部门", key:"department_name"},
-    {label:"处理状态", render:r => statusTag(r.processing_status)},
-    {label:"总行数", key:"line_count", num:true},
-    {label:"已验收", key:"accepted_line_count", num:true},
-    {label:"未解决异常", key:"open_issue_count", num:true},
-    {label:"提交人", key:"submitted_by"},
-    {label:"提交时间", render:r => dt(r.submitted_at)},
-    {label:"邮件主题", render:r => esc(r.subject)},
-    {label:"发件人", key:"sender_address"},
-    {label:"原始邮件校验和", render:r => `<span class="mono">${esc((r.eml_sha256||"").slice(0,12))}</span>`},
-    {label:"附件", render:r => esc(r.source_attachment_path)},
-    {label:"催办状态", render:r => statusTag(r.correction_status)},
-    {label:"部门状态", render:r => statusTag(r.department_status)},
-  ], rows, "该月还没有任何提交记录");
+    {label:"Version", key:"version", num:true},
+    {label:"Department", key:"department_name", strong:true},
+    {label:"Processing", render:r => badge(r.processing_status)},
+    {label:"Lines", key:"line_count", num:true},
+    {label:"Accepted", key:"accepted_line_count", num:true},
+    {label:"Open Issues", num:true, render:r => r.open_issue_count || `<span class="muted">0</span>`},
+    {label:"Submitted By", key:"submitted_by"},
+    {label:"Submitted At", render:r => dt(r.submitted_at)},
+    {label:"Subject", render:r => `<span class="ellip">${esc(r.subject)}</span>`},
+    {label:"From", key:"sender_address"},
+    {label:"EML Checksum", render:r =>
+      `<span class="mono">${esc((r.eml_sha256 || "").slice(0, 12))}</span>`},
+    {label:"Attachment", render:r => `<span class="ellip">${esc(r.source_attachment_path)}</span>`},
+    {label:"Correction", render:r => badge(r.correction_status)},
+    {label:"Dept Status", render:r => badge(r.department_status)},
+  ], rows, "No submissions yet",
+     "No department has submitted a workbook for this period.");
 
-  return panel("提交历史与审计链",
-    "每个版本及其完整邮件证据链 —— 原始 .eml 与附件都留了档",
+  return panel("Submission History & Audit Trail",
+    "One row per submission version, with the complete email evidence chain — the raw .eml and its attachment are archived",
     t);
 }
+
+/* ---------------------------------------------------------------------
+   Page: Trends
+   --------------------------------------------------------------------- */
 
 function renderTrends(d) {
   const rows = d.trends || [];
   const series = d.series || [];
 
-  const max = Math.max(1, ...series.map(s => s.acceptance_rate_pct || 0));
-  const seriesHtml = series.length ? `<div class="tablewrap"><table><thead><tr>
-      <th>月份</th><th class="num">应报行</th><th class="num">已验收</th>
-      <th class="num">采纳率</th><th>采纳率图</th><th class="num">平均完工%</th>
-      <th class="num">金额合计</th></tr></thead><tbody>` +
-    series.map(s => `<tr>
-      <td>${esc(s.reporting_month)}</td>
-      <td class="num">${num(s.expected_line_count)}</td>
-      <td class="num">${num(s.accepted_line_count)}</td>
-      <td class="num">${s.acceptance_rate_pct === null ? "—" : Number(s.acceptance_rate_pct).toFixed(2)+"%"}</td>
-      <td><div class="barwrap"><div class="bar" style="min-width:120px"><i style="width:${(s.acceptance_rate_pct||0)/max*100}%"></i></div></div></td>
-      <td class="num">${s.avg_completion_pct === null ? "—" : Number(s.avg_completion_pct).toFixed(2)+"%"}</td>
-      <td class="num">${money(s.total_amount)}</td>
-    </tr>`).join("") + `</tbody></table></div>` : `<div class="empty">没有趋势数据</div>`;
+  const seriesRows = series.map(s => ({
+    month: s.reporting_month ? s.reporting_month.slice(0, 7) : "—",
+    expected: s.expected_line_count,
+    accepted: s.accepted_line_count,
+    rate: s.acceptance_rate_pct,
+    avg: s.avg_completion_pct,
+    amount: s.total_amount,
+  }));
+
+  const seriesTable = table([
+    {label:"Period", key:"month", strong:true},
+    {label:"Expected Lines", key:"expected", num:true},
+    {label:"Accepted Lines", key:"accepted", num:true},
+    {label:"Acceptance Rate", num:true, render:r => meter(r.rate)},
+    {label:"Avg Completion", num:true, render:r => pctRaw(r.avg, 2)},
+    {label:"Total Amount", num:true, render:r => money(r.amount)},
+  ], seriesRows, "No trend data");
 
   const t = table([
-    {label:"部门", key:"department_name"},
-    {label:"PO", render:r => `<span class="mono">${esc(r.po_number)}-${esc(r.po_line)}</span>`},
-    {label:"说明", key:"po_description"},
-    {label:"金额", num:true, render:r => money(r.po_line_amount)},
-    {label:"上期", num:true, render:r => pct(r.previous_completion_pct)},
-    {label:"本期", num:true, render:r => pct(r.accepted_current_pct)},
-    {label:"变动(pp)", num:true, render:r => r.change_percentage_points === null ? "—" : Number(r.change_percentage_points).toFixed(1)},
-    {label:"校验", render:r => statusTag(r.validation_status)},
-    {label:"原因", render:r => statusTag(r.reason_status)},
-    {label:"备注", key:"remarks"},
-  ], rows, "该月没有 PO 行数据");
+    {label:"Department", key:"department_name"},
+    {label:"PO Line", render:r => `<span class="mono">${esc(r.po_number)}-${esc(r.po_line)}</span>`},
+    {label:"Description", render:r => `<span class="ellip">${esc(r.po_description)}</span>`},
+    {label:"Amount", num:true, render:r => money(r.po_line_amount)},
+    {label:"Previous", num:true, render:r => pct(r.previous_completion_pct)},
+    {label:"Current", num:true, render:r => pct(r.accepted_current_pct)},
+    {label:"Change (pp)", num:true, render:r =>
+      r.change_percentage_points === null || r.change_percentage_points === undefined
+        ? "—" : Number(r.change_percentage_points).toFixed(1)},
+    {label:"Validation", render:r => badge(r.validation_status)},
+    {label:"Reason", render:r => badge(r.reason_status)},
+    {label:"Remarks", render:r => `<span class="ellip">${esc(r.remarks)}</span>`},
+  ], rows, "No PO lines in this period");
 
-  return panel("月度趋势", "跨所有报告月份的采纳率与平均完工率", seriesHtml) +
-         panel("本月 PO 行明细", "每一条 PO 行的完工状态", t);
+  return panel("Monthly Trend",
+    "Acceptance rate and average completion across every reporting period", seriesTable) +
+         panel("PO Lines in this Period", "Completion state for every expected line", t);
 }
+
+/* ---------------------------------------------------------------------
+   Page: Population Scope
+   --------------------------------------------------------------------- */
 
 function renderScope(d) {
   const scope = d.scope || [];
@@ -349,43 +955,58 @@ function renderScope(d) {
   const included = scope.filter(r => r.population_status === "INCLUDED");
   const excluded = scope.filter(r => r.population_status === "EXCLUDED");
   const totalLines = included.reduce((a, r) => a + (r.expected_line_count || 0), 0);
+  const closedInMonth = included.reduce((a, r) => a + (r.closed_in_month_line_count || 0), 0);
 
   const kpis = `<div class="kpis">
-    ${kpi("纳入部门", num(included.length), "已发收集请求")}
-    ${kpi("排除部门", num(excluded.length), "在排除台账上")}
-    ${kpi("在报 PO 行", num(totalLines), "仅 Open 状态")}
-    ${kpi("本月关闭行", num(included.reduce((a,r)=>a+(r.closed_in_month_line_count||0),0)), "保留在最后一个活跃月")}
+    ${kpi("Departments Included", num(included.length), "",
+          "Received a collection request", "var(--success)")}
+    ${kpi("Departments Excluded", num(excluded.length), "",
+          "Recorded on the exclusion ledger", "var(--destructive)")}
+    ${kpi("Lines in Population", num(totalLines), "",
+          "Open PO lines only", "var(--accent)")}
+    ${kpi("Closed in Period", num(closedInMonth), "",
+          "Retained in their last active month", "var(--info)")}
   </div>`;
 
-  const scopeT = table([
-    {label:"部门", key:"department_name"},
-    {label:"成本中心", key:"cost_center"},
-    {label:"负责人", key:"department_owner"},
-    {label:"人口状态", render:r => tag(r.population_status, r.population_status === "INCLUDED" ? "ok" : "bad")},
-    {label:"排除原因", render:r => r.exclusion_reason ? tag(r.exclusion_reason, "warn") : `<span class="muted">—</span>`},
-    {label:"应报行", key:"expected_line_count", num:true},
-    {label:"本月关闭", key:"closed_in_month_line_count", num:true},
-    {label:"授权收件人", render:r => r.is_authorised_contact ? tag("是","ok") : tag("否","mute")},
-  ], scope, "没有人口数据");
+  const scopeTable = table([
+    {label:"Department", key:"department_name", strong:true},
+    {label:"Cost Center", key:"cost_center"},
+    {label:"Owner", render:r => `<span class="ellip">${esc(r.department_owner)}</span>`},
+    {label:"Scope Status", render:r => badge(r.population_status)},
+    {label:"Exclusion Reason", render:r => r.exclusion_reason
+      ? badge(r.exclusion_reason, "warning") : `<span class="muted">—</span>`},
+    {label:"Expected Lines", key:"expected_line_count", num:true},
+    {label:"Closed in Period", key:"closed_in_month_line_count", num:true},
+    {label:"Authorised Contact", render:r => r.is_authorised_contact
+      ? badge("Yes", "success") : badge("No", "neutral")},
+  ], scope, "No population scope recorded");
 
-  const exclT = table([
-    {label:"部门", key:"department_name"},
-    {label:"成本中心", key:"cost_center"},
-    {label:"负责人", key:"manager"},
-    {label:"原因", render:r => tag(r.exclusion_reason, "warn")},
-    {label:"ERP 行数", key:"po_line_count", num:true},
-    {label:"本月人口", key:"population_line_count", num:true},
-    {label:"本部门在报", key:"included_line_count_for_cost_center", num:true},
-    {label:"已通知财务", render:r => r.reported_to_finance ? tag("是","ok") : tag("否","mute")},
-    {label:"通知时间", render:r => dt(r.reported_at)},
-  ], excl, "没有被排除的部门");
+  const exclTable = table([
+    {label:"Department", key:"department_name", strong:true},
+    {label:"Cost Center", key:"cost_center"},
+    {label:"Manager", key:"manager"},
+    {label:"Reason", render:r => badge(r.exclusion_reason, "warning")},
+    {label:"ERP Line Count", key:"po_line_count", num:true},
+    {label:"Period Population", key:"population_line_count", num:true},
+    {label:"Included for Dept", key:"included_line_count_for_cost_center", num:true},
+    {label:"Finance Notified", render:r => r.reported_to_finance
+      ? badge("Yes", "success") : badge("No", "neutral")},
+    {label:"Notified At", render:r => dt(r.reported_at)},
+  ], excl, "No excluded departments",
+     "Every department contributed at least one PO line.");
 
   return kpis +
-    panel("人口口径", "每个部门要么在人口里，要么在排除台账上 —— 不会有部门悄悄消失",
-      scopeT,
-      `<b>每一个部门</b>要么在人口里，要么在排除台账上。排除的部门永远不会被当作收件人，因为它从不被要求上报。`) +
-    panel("被排除的部门", "财务必须能看到这些部门存在、并且知道为什么被排除", exclT);
+    panel("Population Scope",
+      "Every department is either in the population or on the exclusion ledger — no department can silently vanish from the reporting",
+      scopeTable,
+      "A department excluded from the population is never an authorised contact, because it is never asked to report.") +
+    panel("Excluded Departments",
+      "Finance can see that the department exists, that it was deliberately left out, and why", exclTable);
 }
+
+/* ---------------------------------------------------------------------
+   Page: PO Status Scope
+   --------------------------------------------------------------------- */
 
 function renderStatusScope(d) {
   const rows = d.statusScope || [];
@@ -394,78 +1015,132 @@ function renderStatusScope(d) {
   const byStatus = {};
   rows.forEach(r => { byStatus[r.po_status] = (byStatus[r.po_status] || 0) + 1; });
   const statusChips = Object.entries(byStatus).map(([k, v]) =>
-    `<span class="tag ${k === "Closed" ? "bad" : "warn"}">${esc(k)} · ${v} 行</span>`
-  ).join(" ");
+    badge(`${k} · ${v}`, k === "Closed" ? "destructive" : "warning")).join(" ");
 
   const totalAmount = rows.reduce((a, r) => a + Number(r.po_line_amount || 0), 0);
+  const currency = rows.length ? rows[0].currency : null;
 
   const kpis = `<div class="kpis">
-    ${kpi("被过滤行", num(rows.length), statusChips || "无")}
-    ${kpi("涉及金额", money(totalAmount), "未计入本月在报")}
-    ${kpi("本月关闭行", num(closed.length), "保留在最后一个活跃月")}
-    ${kpi("口径", rows.length ? esc(rows[0].included_status) : "Open", rows.length ? "排除：" + esc(rows[0].excluded_statuses) : "")}
+    ${kpi("Filtered Lines", num(rows.length), "",
+          statusChips || "None", "var(--warning)")}
+    ${kpi("Value Outside Population", money(totalAmount, currency), "",
+          "Not counted in the reported period", "var(--destructive)")}
+    ${kpi("Closed in Period", num(closed.length), "",
+          "Retained in their last active month", "var(--info)")}
+    ${kpi("Scope Applied", rows.length ? esc(rows[0].included_status) : "Open", "",
+          rows.length ? `Excludes ${esc(rows[0].excluded_statuses)}` : "No exclusions", "var(--accent)")}
   </div>`;
 
   const t = table([
-    {label:"部门", key:"department_name"},
-    {label:"成本中心", key:"cost_center"},
-    {label:"负责人", key:"manager"},
-    {label:"PO", render:r => `<span class="mono">${esc(r.po_number)}-${esc(r.po_line)}</span>`},
-    {label:"ERP 状态", render:r => tag(r.po_status, r.po_status === "Closed" ? "bad" : "warn")},
-    {label:"说明", key:"po_description"},
-    {label:"金额", num:true, render:r => money(r.po_line_amount)},
-    {label:"币种", key:"currency"},
-    {label:"最后活跃月", render:r => r.last_active_month ? esc(r.last_active_month) : `<span class="muted">未知</span>`},
-    {label:"本部门在报", key:"included_line_count_for_cost_center", num:true},
-    {label:"本月人口", key:"population_line_count", num:true},
-  ], rows, "没有被状态过滤掉的行 —— 该月全部 PO 行都是 Open");
+    {label:"Department", key:"department_name"},
+    {label:"Cost Center", key:"cost_center"},
+    {label:"Manager", render:r => `<span class="ellip">${esc(r.manager)}</span>`},
+    {label:"PO Line", render:r => `<span class="mono">${esc(r.po_number)}-${esc(r.po_line)}</span>`},
+    {label:"ERP Status", render:r => badge(r.po_status)},
+    {label:"Description", render:r => `<span class="ellip">${esc(r.po_description)}</span>`},
+    {label:"Amount", num:true, render:r => money(r.po_line_amount, r.currency)},
+    {label:"Last Active Month", render:r => r.last_active_month
+      ? esc(r.last_active_month) : badge("Unknown", "neutral")},
+    {label:"Included for Dept", key:"included_line_count_for_cost_center", num:true},
+    {label:"Period Population", key:"population_line_count", num:true},
+  ], rows, "No lines filtered by status",
+     "Every PO line in this period carries the Open status.");
 
   const cT = table([
-    {label:"部门", key:"department_name"},
-    {label:"成本中心", key:"cost_center"},
-    {label:"PO", render:r => `<span class="mono">${esc(r.po_number)}-${esc(r.po_line)}</span>`},
-    {label:"状态", render:r => tag(r.po_status, "closed")},
-    {label:"说明", key:"po_description"},
-    {label:"金额", num:true, render:r => money(r.po_line_amount)},
-    {label:"最后活跃月", render:r => esc(r.last_active_month)},
-    {label:"最后完工率", num:true, render:r => pct(r.last_reported_completion_pct)},
-  ], closed, "本月没有中途关闭的 PO 行");
+    {label:"Department", key:"department_name"},
+    {label:"Cost Center", key:"cost_center"},
+    {label:"PO Line", render:r => `<span class="mono">${esc(r.po_number)}-${esc(r.po_line)}</span>`},
+    {label:"Status", render:r => badge(r.po_status, "closed")},
+    {label:"Description", render:r => `<span class="ellip">${esc(r.po_description)}</span>`},
+    {label:"Amount", num:true, render:r => money(r.po_line_amount, r.currency)},
+    {label:"Last Active Month", key:"last_active_month"},
+    {label:"Last Reported", num:true, render:r => pct(r.last_reported_completion_pct)},
+  ], closed, "No lines closed mid-period",
+     "No PO line closed during the month of this period.");
 
   const note = rows.length
-    ? `<b>为什么</b>：月报只覆盖 <b>${esc(rows[0].included_status)}</b> 状态的 PO 行（排除 ${esc(rows[0].excluded_statuses)}）。
-       被过滤的行记在同一本台账上，所以报表永远不会悄悄少报承诺。
-       <br><b>最后活跃月显示"未知"</b> 是正常的 —— 需要 ERP 导入两次以上才能观察到状态变化，第二次导入后规则会自动生效。`
+    ? `The monthly report covers <b>${esc(rows[0].included_status)}</b> PO lines only
+       (excludes ${esc(rows[0].excluded_statuses)}). Filtered lines are recorded on the same
+       ledger as the excluded departments, so the report can never silently understate the
+       commitment book.
+       <br><b>"Unknown" last active month is expected.</b> It requires more than one ERP
+       import before a status change can be observed; from the second import the rule
+       activates on its own.`
     : "";
 
   return kpis +
-    panel("被状态过滤掉的 PO 行", "同一本台账：被排除的部门 + 被过滤的行", t, note) +
-    panel("本月中途关闭的 PO 行", "标记为已关闭并保留在它最后一个活跃月", cT);
+    panel("PO Lines Filtered by Status",
+      "The same ledger as the excluded departments — the filtered lines are never hidden",
+      t, note, "info") +
+    panel("Lines Closed During the Period",
+      "Retained in the month in which the work finished, marked as closed", cT);
 }
 
-/* ---------------- shell ---------------- */
+/* ---------------------------------------------------------------------
+   Shell
+   --------------------------------------------------------------------- */
+
+function buildNav(counts) {
+  const nav = document.getElementById("nav");
+  nav.innerHTML = "";
+  NAV.forEach(g => {
+    const h = document.createElement("div");
+    h.className = "nav-group";
+    h.textContent = g.group;
+    nav.appendChild(h);
+    g.items.forEach(it => {
+      const b = document.createElement("button");
+      b.className = "nav-item";
+      b.dataset.page = it.id;
+      b.setAttribute("aria-current", "false");
+      const n = counts[it.id];
+      b.innerHTML =
+        `<svg class="ico" viewBox="0 0 16 16" aria-hidden="true">${ICONS[it.icon]}</svg>` +
+        `<span>${esc(it.label)}</span>` +
+        (n ? `<span class="count${it.id === "exceptions" && n > 0 ? " alert" : ""}">${n}</span>` : "");
+      b.onclick = () => { CURRENT = it.id; closeNav(); render(); };
+      nav.appendChild(b);
+    });
+  });
+}
+
+function currentNav() {
+  for (const g of NAV) for (const it of g.items) if (it.id === CURRENT) return it;
+  return NAV[0].items[0];
+}
+
+function closeNav() { document.body.classList.remove("nav-open"); }
+
+function setNavState(counts) {
+  document.querySelectorAll(".nav-item").forEach(b => {
+    const active = b.dataset.page === CURRENT;
+    b.classList.toggle("active", active);
+    b.setAttribute("aria-current", active ? "page" : "false");
+    const n = counts[b.dataset.page];
+    let c = b.querySelector(".count");
+    if (n) {
+      if (!c) {
+        c = document.createElement("span");
+        c.className = "count";
+        b.appendChild(c);
+      }
+      c.textContent = n;
+      c.classList.toggle("alert", b.dataset.page === "exceptions" && n > 0);
+    } else if (c) { c.remove(); }
+  });
+}
 
 async function render() {
   const content = document.getElementById("content");
-  content.innerHTML = `<div class="empty">正在加载…</div>`;
+  const nav = currentNav();
+
+  document.getElementById("page-title").textContent = nav.label;
+  document.getElementById("page-crumb").textContent = nav.crumb;
+
+  content.innerHTML = `<div class="empty"><div class="etitle">Loading</div></div>`;
+
   try {
-    if (!CACHE[MONTH]) {
-      const q = `?reporting_month=${encodeURIComponent(MONTH)}`;
-      const [overview, exceptions, audit, trends, series, scope,
-             exclusions, statusScope, closedLines, fresh] = await Promise.all([
-        api(`/api/v1/dashboard/department_overview${q}`),
-        api(`/api/v1/dashboard/validation_exceptions${q}`),
-        api(`/api/v1/dashboard/submission_audit${q}`),
-        api(`/api/v1/dashboard/completion_trends${q}`),
-        api(`/api/v1/dashboard/trend_series`),
-        api(`/api/v1/dashboard/population_scope${q}`),
-        api(`/api/v1/dashboard/population_exclusions${q}`),
-        api(`/api/v1/dashboard/population_status_exclusions${q}`),
-        api(`/api/v1/dashboard/population_closed_lines${q}`),
-        api(`/api/v1/dashboard/freshness${q}`),
-      ]);
-      CACHE[MONTH] = {overview, exceptions, audit, trends, series, scope,
-                      exclusions, statusScope, closedLines, fresh};
-    }
+    if (!CACHE[MONTH]) CACHE[MONTH] = await loadMonth(MONTH);
     const d = CACHE[MONTH];
 
     let html = "";
@@ -476,35 +1151,32 @@ async function render() {
     if (CURRENT === "scope")          html = renderScope(d);
     if (CURRENT === "status_scope")   html = renderStatusScope(d);
 
-    const f = (d.fresh && d.fresh[0]) || {};
-    const sub = f.last_export_at
-      ? `Master Excel: ${f.last_export_file || "—"} · ${dt(f.last_export_at)}`
-      : "本月尚未发布 Master Excel";
-    document.getElementById("hdr-sub").textContent = sub;
-
     content.innerHTML = html;
-    document.querySelectorAll("#tabs button").forEach(b => {
-      b.classList.toggle("active", b.dataset.page === CURRENT);
-    });
+
+    /* Nav counts: exceptions and excluded departments are actionable. */
+    const counts = {
+      exceptions: (d.exceptions || []).length,
+      scope: (d.scope || []).filter(r => r.population_status === "EXCLUDED").length,
+      status_scope: (d.statusScope || []).length,
+    };
+    setNavState(counts);
+
+    /* Sidebar footer: period and export freshness. */
+    document.getElementById("foot-month").textContent = MONTH || "—";
+    const f = (d.fresh && d.fresh[0]) || {};
+    document.getElementById("foot-export").textContent = f.last_export_at
+      ? dt(f.last_export_at) : "Not published";
+
+    document.getElementById("brand-env").textContent = "CapEx Accrual";
+
   } catch (e) {
-    content.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`;
+    content.innerHTML = `<div class="empty">
+      <div class="etitle">Could not load this page</div>
+      <div class="esub">${esc(e.message)}</div></div>`;
   }
 }
 
-function buildTabs() {
-  const nav = document.getElementById("tabs");
-  nav.innerHTML = "";
-  PAGES.forEach(p => {
-    const b = document.createElement("button");
-    b.textContent = p.label;
-    b.dataset.page = p.id;
-    b.onclick = () => { CURRENT = p.id; render(); };
-    nav.appendChild(b);
-  });
-}
-
 async function init() {
-  buildTabs();
   const resp = await api("/api/v1/dashboard/months");
   const months = Array.isArray(resp) ? resp : (resp.months || []);
   const sel = document.getElementById("month");
@@ -514,15 +1186,23 @@ async function init() {
     o.value = m; o.textContent = m;
     sel.appendChild(o);
   });
-  MONTH = months[0] || null;
-  if (!MONTH) {
+
+  buildNav({});
+
+  if (!months.length) {
     document.getElementById("content").innerHTML =
-      `<div class="empty">数据库里还没有报告月份。请先运行 scripts/freeze_population.py。</div>`;
+      `<div class="empty"><div class="etitle">No reporting periods</div>
+       <div class="esub">Run scripts/freeze_population.py to freeze a population first.</div></div>`;
     return;
   }
+
+  MONTH = months[0];
   sel.value = MONTH;
   sel.onchange = () => { MONTH = sel.value; render(); };
   document.getElementById("reload").onclick = () => { delete CACHE[MONTH]; render(); };
+  document.getElementById("nav-toggle").onclick = () =>
+    document.body.classList.toggle("nav-open");
+
   await render();
 }
 

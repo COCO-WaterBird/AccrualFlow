@@ -457,6 +457,49 @@ The dashboard shows the 24 filtered lines of `2026-11` with their reason,
 the department that was excluded, and the `last_active_month` marked
 "未知" rather than guessed — the same honest state as the ledger.
 
+### 2.10 The dashboard redesign — enterprise North American standard
+
+The dashboard was rebuilt from the original Chinese tab layout into a
+modern North American B2B SaaS interface, to the standard of Ramp,
+Stripe Dashboard and Linear, using the shadcn/ui token model.
+
+**The stack did not change.** It is still one self contained
+`dashboard.html` with vanilla JS and CSS custom properties, served by
+FastAPI, reading the same nine PostgreSQL views. No React, no Node, no
+bundler, no CDN. The owner ruled that no useless code and no useless
+extensions may be added, so a design system was built *inside* the
+existing file rather than by adding a toolchain.
+
+| Before | After |
+|---|---|
+| Horizontal Chinese tab bar | Left sidebar, grouped into **Reporting** and **Scope** |
+| Plain number tables | Compact KPI cards with dot indicators and context lines |
+| Chinese status text | American English status badges, colour **and** text |
+| Proportional figures | `tabular-nums` on every number, percentage and currency |
+| Ungrouped rows | Review queues beside the primary tables |
+| No live counters | Sidebar badge counts (open exceptions, excluded departments, status ledger rows) |
+
+**The tabs**, all in American English:
+
+| Tab | View |
+|---|---|
+| Overview | `vw_pbi_department_submission_overview` |
+| Exceptions | `vw_pbi_validation_exceptions` |
+| Audit Trail | `vw_pbi_submission_audit_history` |
+| Trends | `vw_pbi_completion_trends` |
+| Population Scope | `vw_pbi_population_scope` + `vw_pbi_population_exclusions` |
+| PO Status Scope | `vw_pbi_population_status_exclusions` + `vw_pbi_population_closed_lines` |
+
+**Design rules are now permanent.** `.cursor/rules/project-rules.md`
+records the stack constraints, the design system rules, the financial
+safety rules and the test rules, so the agent keeps applying them.
+
+**Verified in the browser.** No JavaScript errors on any of the six
+pages; the period selector reloads every KPI card, queue and table; the
+sidebar collapses into a drawer under 900px. Both periods were checked:
+`2026-11` (476 lines, 6 departments, 24 status exclusions) and `2098-11`
+(87 lines, 1 department). Full test suite: **232 passed**.
+
 ---
 
 ## 6.1 Repository
@@ -502,3 +545,4 @@ identical to the local commit, and the credential backup folder is absent.
 | 2026-11-17 | **Pushed to GitHub** — commit `2b2f3dd` on `main`. |
 | 2026-11-17 | **The web dashboard was built.** The owner asked where to see the dashboard; Power BI is Microsoft's software and is not in the repository (no `.pbix` file existed, and the browser Power BI needs the on-premises data gateway plus a Pro licence to reach a local database). The project now ships its own dashboard on the same nine reporting views, so it can never disagree with the official report. A bug was found and fixed: the page hung on "正在加载…" because the month list response shape was not handled. Verified in the browser, all six tabs, both periods. Test suite: 206 → **232 passed**. |
 | 2026-11-17 | **Pushed to GitHub** — commit `fe0beea` on `main`. |
+| 2026-11-17 | **The dashboard was redesigned to the enterprise North American standard** (Ramp / Stripe / Linear, shadcn/ui tokens): left sidebar with badge counters, compact KPI cards, review queues, semantic status badges in American English, tabular figures, responsive drawer. The stack is unchanged — one self contained HTML file, no React, no Node, no CDN. The standing project rules were written to `.cursor/rules/project-rules.md`. Verified in the browser: no JavaScript errors on any of the six pages, period switching reloads every panel. Test suite: **232 passed**. |
