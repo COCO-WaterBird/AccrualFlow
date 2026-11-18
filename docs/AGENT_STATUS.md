@@ -548,13 +548,29 @@ sync_erp_snapshot          success   -> 500 PO rows imported
 freeze_expected_population up_for_retry -> the population guard fired
 ```
 
-The `FREEZE` failure is the **idempotency guard working as designed**:
-`2098-11` was already frozen with 87 rows by the earlier dry run, and
-the ERP now returns 500, so the freeze correctly refuses to replace a
-frozen population. The live period `2026-11` was never written to
-(476 rows, unchanged).
+The `FREEZE` failure was the **idempotency guard working as designed**:
+`2098-11` had been frozen with 87 synthetic rows by the earlier dry run,
+and the ERP returns 500, so the freeze correctly refused to replace a
+frozen population. The throwaway period was then reseeded from the ERP
+(476 Open lines across the same 6 departments as the live period), and
+the full pipeline ran clean:
 
-Test suite: 232 → **261 passed**.
+```
+RECONCILE: expected=476 | accepted=76 | export=476 | reconciled=True
+           collection_complete=True | data_ready=True
+```
+
+All 8 recorded stages succeeded. The live period `2026-11` was never
+written to (476 rows, unchanged).
+
+**A test period is synthetic on two signals**, not one. It is synthetic
+when the population source is `Dry Run` **or** when it sits in a future
+year. The second signal is the stronger one: a throwaway period may
+have been frozen from the ERP by hand, so the source no longer says it
+is synthetic, but the year still does. A month the business has not
+reached yet cannot be a real reporting month.
+
+Test suite: 232 → **264 passed**.
 
 ---
 
@@ -607,3 +623,6 @@ identical to the local commit, and the credential backup folder is absent.
 | 2026-11-18 | **The monthly collection cycle and the progress ledger** were added: the owner starts one run per reporting month from the dashboard, and every stage is recorded the moment it finishes, with its error message when it fails. |
 | 2026-11-18 | **Four bugs found and fixed**: the legal entity was dropped between DAG tasks (`KeyError`); the reporting month was read from the wrong place in the Airflow context (a run for `2098-11` collected `2026-11`); a test wrote its stage rows into the live month and made the dashboard report a false failure; and two tests asserted on a renamed variable. Verified against the throwaway period — the live period `2026-11` was never written to. Test suite: 232 → **261 passed**. |
 | 2026-11-18 | **Pushed to GitHub** — commit `c9ec5a6` on `main`. |
+| 2026-11-18 | **The throwaway period was reseeded from the ERP.** It had been frozen with 87 synthetic rows by the earlier dry run, and the freeze correctly refused to replace them with the 476 real ones. It now holds the same 476 Open PO lines across the same 6 departments as the live period, and the full pipeline runs clean: `RECONCILE: expected=476 | accepted=76 | export=476 | reconciled=True`, all 8 stages successful, live period untouched. |
+| 2026-11-18 | **A test period is synthetic on two signals** — the `Dry Run` source, or a future year. The future year is the stronger one, because a throwaway period may have been frozen from the ERP by hand, in which case the source no longer says it is synthetic but the year still does. The banner now says what a test period *is* rather than how it was filled. Test suite: 261 → **264 passed**. |
+| 2026-11-18 | **Pushed to GitHub** — commits `e735b49` and `bbb1ad5` on `main`. |
