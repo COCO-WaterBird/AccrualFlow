@@ -47,7 +47,22 @@ import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from airflow.sdk import dag, task
+from airflow.decorators import dag, task
+
+# The DAG must be built from the *core* DAG class, not the Task SDK
+# one.
+#
+# The Task SDK exposes ``airflow.sdk.definitions.dag.DAG``, which does
+# not carry ``next_dagrun_info``.  The core serializer needs that
+# attribute when it writes a parsed DAG back to the database.  A DAG
+# built from the SDK class therefore parses without error but can never
+# be saved: the processor reads the DagBag, fails on the write, marks
+# the DAG stale and parses it again, forever.  The DAG stays stale, the
+# Airflow API refuses to trigger it, and every run stays queued.
+#
+# Passing ``__DAG_class`` makes the decorator build the core DAG, which
+# the serializer can write.
+from airflow.models.dag import DAG as CoreDAG
 
 
 # The business timezone of the reporting cycle.
@@ -218,6 +233,9 @@ def _reporting_month(logical_date) -> str:
     catchup=False,
     max_active_runs=1,
     tags=["accrualflow", "finance", "monitoring"],
+    # The core DAG class, so that the processor can save the parsed
+    # DAG.  See the import at the top of this file.
+    __DAG_class=CoreDAG,
     default_args={
         "retries": 2,
         "retry_delay": timedelta(minutes=5),
